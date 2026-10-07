@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://cyj03oixg42b6"]
+
+[ext_resource type="Script" uid="uid://dlvu683fxoapv" path="res://entities/player/player.gd" id="1_symyc"]
+
+[node name="Player" type="CharacterBody2D"]
+script = ExtResource("1_symyc")
