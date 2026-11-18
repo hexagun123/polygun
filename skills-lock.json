@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "skills": {
+    "godot-code-review": {
+      "source": "jame581/GodotPrompter",
+      "commit": "426e8ab597473d1c71a11a04f6f0f2e1182a8e39",
+      "sourceType": "github",
+      "skillPath": "skills/godot-code-review/SKILL.md",
+      "computedHash": "321a2e8e4b5aabd7fb47ad440840105002311cf5a4318d7d960abe2448175e85"
+    },
+    "godot-gdscript-patterns": {
+      "source": "wshobson/agents",
+      "commit": "42203085cfc5736204bf0f6d436dff7e1da0bf3f",
+      "sourceType": "github",
+      "skillPath": "plugins/game-development/skills/godot-gdscript-patterns/SKILL.md",
+      "computedHash": "78195eaebec02434bd7cdb90a78bcf1573d1ec36c2a590649d9839a7a3350767"
+    }
+  }
+}

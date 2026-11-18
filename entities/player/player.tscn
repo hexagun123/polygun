@@ -4,3 +4,7 @@
 
 [node name="Player" type="CharacterBody2D"]
 script = ExtResource("1_symyc")
+sides = 3
+radius = 24.0
+color = Color(0, 1, 0, 1)
+camera_bounds_half_size = Vector2(1536, 1536)

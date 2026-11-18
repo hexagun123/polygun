@@ -1,11 +1,11 @@
-[gd_scene load_steps=3 format=3 uid="uid://cjmff0wlmncdk"]
+[gd_scene format=3 uid="uid://cjmff0wlmncdk"]
 
 [ext_resource type="PackedScene" uid="uid://cyj03oixg42b6" path="res://entities/player/player.tscn" id="1_ignou"]
 [ext_resource type="Script" uid="uid://clja26qhra8nq" path="res://world/testing_arena.gd" id="2_sra1m"]
 
-[node name="TestingArena" type="Node2D"]
+[node name="TestingArena" type="Node2D" unique_id=598160902]
 
-[node name="Player" parent="." instance=ExtResource("1_ignou")]
+[node name="Player" parent="." unique_id=7877437 instance=ExtResource("1_ignou")]
 
-[node name="Node2D" type="Node2D" parent="."]
+[node name="Node2D" type="Node2D" parent="." unique_id=1996491761]
 script = ExtResource("2_sra1m")
