@@ -10,6 +10,20 @@
 - `Player` reads `move_left`, `move_right`, `move_up`, `move_down`, but `project.godot` has no `[input]` section. Confirm/add those plus a fire action.
 - Scripts have `.gd.uid` sidecars. Preserve UIDs; have the user change UID-sensitive data in the editor.
 
+## Progress — 2026-11-19
+
+Shooting milestone is implemented:
+
+- Mouse aim + hold-to-fire (`fire` = LMB), `Projectile` moved by raycast so it can't tunnel through arena walls; generated shot tone.
+- `Enemy` chaser (5-sided, 3 HP, layer 1) chases the `&"player"` group and deals contact damage.
+- Hit feedback: white flash, generated noise impact, directional knockback; death shard burst via `DeathBurst`.
+- Minimal player health: 3 HP, 0.7 s damage cooldown, red flash, respawn at origin.
+- `EnemySpawner` in `testing_arena.tscn` spawns 3 enemies at 260–700 px from origin.
+- Generated audio moved to `audio/sfx.gd` (`Sfx.make_tone`, `Sfx.make_noise`).
+- Verified with headless Godot 4.7.2: project runs clean, and a smoke harness confirmed projectile damage, enemy death + burst, and player invulnerability. Still run the main scene once to tune feel.
+
+Next step: phase 1 — enemy/boss pools + wave director (random picks, same arena).
+
 ## User's vision
 
 - Fast-paced geometry shooter with nice SFX so it feels entertaining.

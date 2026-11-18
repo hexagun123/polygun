@@ -2,6 +2,7 @@
 
 [ext_resource type="PackedScene" uid="uid://cyj03oixg42b6" path="res://entities/player/player.tscn" id="1_ignou"]
 [ext_resource type="Script" uid="uid://clja26qhra8nq" path="res://world/testing_arena.gd" id="2_sra1m"]
+[ext_resource type="Script" path="res://world/enemy_spawner.gd" id="3_spawn"]
 
 [node name="TestingArena" type="Node2D" unique_id=598160902]
 
@@ -9,3 +10,6 @@
 
 [node name="Node2D" type="Node2D" parent="." unique_id=1996491761]
 script = ExtResource("2_sra1m")
+
+[node name="EnemySpawner" type="Node2D" parent="."]
+script = ExtResource("3_spawn")
