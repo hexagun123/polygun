@@ -13,9 +13,15 @@
 
 - edit directly only for small fixes, otherwise use sub-agents as much as possible
 - don't over engineer code that is not nessesary.
+- upon completing a fix or a feature, check the diff and ask the user for whether to commit or not
 - Use Godot 4.x GDScript only
 - if something is risky to change, such as possible breaks in "uid://", ask the user to change it in the godot editor
+- try to limit the access to godot editor itself as it is really slow
 - always check for code quality, including broken path and type errors after completing features
+
+## git
+
+- ensure commit messages are concise but enough to convey the change
 
 ## Project shape
 
