@@ -2,7 +2,9 @@ class_name WaveDirector
 extends Node2D
 
 signal wave_changed(wave: int, total: int)
+signal level_changed(level: int, total: int)
 signal boss_spawned(boss: Boss)
+signal level_cleared(level: int)
 signal run_finished(victory: bool)
 
 enum State {
@@ -13,22 +15,43 @@ enum State {
 	FINISHED,
 }
 
-const EnemyScript = preload("res://entities/enemy/enemy.gd")
-const BossScript = preload("res://entities/enemy/boss.gd")
-const TimeControlScript = preload("res://entities/fx/time_control.gd")
+const ENEMY_SCRIPTS: Dictionary = {
+	&"chaser": preload("res://entities/enemy/enemy.gd"),
+	&"spitter": preload("res://entities/enemy/spitter.gd"),
+	&"lunger": preload("res://entities/enemy/lunger.gd"),
+	&"tank": preload("res://entities/enemy/tank.gd"),
+}
 
-const WAVE_COUNTS: Array[int] = [3, 5, 7]
-const INTERMISSION_TIME: float = 2.0
-const SPAWN_MIN_DISTANCE: float = 450.0
-const SPAWN_MAX_DISTANCE: float = 700.0
+## One level for now. Each entry is a wave: a list of {role, count} groups.
+const WAVES: Array = [
+	[
+		{"role": &"chaser", "count": 4},
+	],
+	[
+		{"role": &"chaser", "count": 3},
+		{"role": &"spitter", "count": 2},
+	],
+	[
+		{"role": &"chaser", "count": 3},
+		{"role": &"spitter", "count": 2},
+		{"role": &"lunger", "count": 1},
+		{"role": &"tank", "count": 1},
+	],
+]
+
+const INTERMISSION_TIME: float = 0.8
+const SPAWN_MIN_DISTANCE: float = 300.0
+const SPAWN_MAX_DISTANCE: float = 560.0
 const ARENA_LIMIT: float = 1400.0
-const BOSS_SPAWN_DISTANCE: float = 650.0
-const MIN_SPAWN_CLEARANCE: float = 320.0
+const BOSS_SPAWN_DISTANCE: float = 520.0
+const MIN_SPAWN_CLEARANCE: float = 240.0
 const END_DELAY: float = 0.8
 
 var state: State = State.IDLE
+var level: int = 1
+var total_levels: int = 1
 var wave: int = 0
-var total_waves: int = WAVE_COUNTS.size()
+var total_waves: int = WAVES.size()
 
 var _alive: int = 0
 var _boss: Boss = null
@@ -57,10 +80,11 @@ func _ready() -> void:
 
 
 func _begin() -> void:
-	TimeControlScript.reset()
+	TimeControl.reset()
 	var player: Node = get_tree().get_first_node_in_group(&"player")
 	if player != null and player.has_signal(&"died"):
 		player.died.connect(_on_player_died)
+	level_changed.emit(level, total_levels)
 	_start_wave(1)
 
 
@@ -68,23 +92,33 @@ func _start_wave(index: int) -> void:
 	wave = clampi(index, 1, total_waves)
 	state = State.FIGHTING
 	_alive = 0
+	_clear_hostile_projectiles()
 	wave_changed.emit(wave, total_waves)
-	_spawn_wave(WAVE_COUNTS[wave - 1])
+	_spawn_wave(WAVES[wave - 1])
 
 
-func _spawn_wave(count: int) -> void:
+func _spawn_wave(composition: Array) -> void:
 	var origin: Vector2 = _player_position()
-	for i in range(count):
-		# Even sectors with jitter spread the ring without stacking enemies.
-		var angle: float = TAU * float(i) / float(count) + _rng.randf_range(-0.3, 0.3)
-		var distance: float = _rng.randf_range(SPAWN_MIN_DISTANCE, SPAWN_MAX_DISTANCE)
-		var position: Vector2 = _ring_position(origin, angle, distance)
 
-		var enemy: Enemy = EnemyScript.new()
-		add_child(enemy)
-		enemy.global_position = position
-		_alive += 1
-		enemy.died.connect(_on_enemy_died)
+	var total: int = 0
+	for entry: Dictionary in composition:
+		total += int(entry["count"])
+
+	var index: int = 0
+	for entry: Dictionary in composition:
+		var script: Script = ENEMY_SCRIPTS[entry["role"]]
+		for i in int(entry["count"]):
+			# Even sectors with jitter spread the ring without stacking enemies.
+			var angle: float = TAU * float(index) / float(maxi(total, 1)) + _rng.randf_range(-0.3, 0.3)
+			var distance: float = _rng.randf_range(SPAWN_MIN_DISTANCE, SPAWN_MAX_DISTANCE)
+			var position: Vector2 = _ring_position(origin, angle, distance)
+
+			var enemy: Enemy = script.new()
+			add_child(enemy)
+			enemy.global_position = position
+			_alive += 1
+			enemy.died.connect(_on_enemy_died)
+			index += 1
 
 
 func _on_enemy_died(_enemy: Executable) -> void:
@@ -109,11 +143,12 @@ func _on_intermission_timeout() -> void:
 
 func _spawn_boss() -> void:
 	state = State.BOSS
+	_clear_hostile_projectiles()
 	var origin: Vector2 = _player_position()
 	var angle: float = _rng.randf_range(0.0, TAU)
 	var position: Vector2 = _ring_position(origin, angle, BOSS_SPAWN_DISTANCE)
 
-	_boss = BossScript.new()
+	_boss = load("res://entities/enemy/boss.gd").new()
 	add_child(_boss)
 	_boss.global_position = position
 	_boss.died.connect(_on_boss_died)
@@ -123,6 +158,9 @@ func _spawn_boss() -> void:
 func _on_boss_died(_boss_node: Executable) -> void:
 	if state != State.BOSS:
 		return
+	# One level today: clear it and end the run. Extra levels become another
+	# WAVES entry and a level advance here.
+	level_cleared.emit(level)
 	_finish(true)
 
 
@@ -142,6 +180,12 @@ func _finish(victory: bool) -> void:
 func _on_end_timeout() -> void:
 	# Freeze the arena; the HUD runs with PROCESS_MODE_ALWAYS and owns restart.
 	get_tree().paused = true
+
+
+func _clear_hostile_projectiles() -> void:
+	for node: Node in get_tree().get_nodes_in_group(&"hostile_projectiles"):
+		if is_instance_valid(node):
+			node.queue_free()
 
 
 func _player_position() -> Vector2:

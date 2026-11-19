@@ -21,6 +21,9 @@ var _pips: Array[ColorRect] = []
 var _pip_max: int = 0
 var _wave_label: Label
 var _combo_label: Label
+var _level: int = 1
+var _wave: int = 0
+var _wave_total: int = 0
 var _boss_box: VBoxContainer
 var _boss_fill: ColorRect
 var _end_overlay: Control
@@ -159,6 +162,8 @@ func _bind_scene() -> void:
 
 	var director := get_tree().get_first_node_in_group(&"director")
 	if director != null:
+		if director.has_signal(&"level_changed"):
+			director.connect(&"level_changed", _on_level_changed)
 		if director.has_signal(&"wave_changed"):
 			director.connect(&"wave_changed", _on_wave_changed)
 		if director.has_signal(&"boss_spawned"):
@@ -168,6 +173,9 @@ func _bind_scene() -> void:
 
 		# The director starts wave 1 before this deferred bind runs, so its
 		# first wave_changed is already gone: seed the label from its state.
+		var level_value: Variant = director.get(&"level")
+		if level_value is int and int(level_value) > 0:
+			_level = int(level_value)
 		var wave_value: Variant = director.get(&"wave")
 		var total_value: Variant = director.get(&"total_waves")
 		if wave_value is int and total_value is int and wave_value > 0:
@@ -195,7 +203,20 @@ func _on_player_health_changed(current: int, maximum: int) -> void:
 
 
 func _on_wave_changed(wave: int, total: int) -> void:
-	_wave_label.text = "WAVE %d / %d" % [wave, total]
+	_wave = wave
+	_wave_total = total
+	_refresh_wave_label()
+
+
+func _on_level_changed(level: int, _total: int) -> void:
+	_level = level
+	_refresh_wave_label()
+
+
+func _refresh_wave_label() -> void:
+	if _wave <= 0:
+		return
+	_wave_label.text = "LEVEL %d  ·  WAVE %d / %d" % [_level, _wave, _wave_total]
 
 
 func _on_combo_changed(value: int) -> void:
