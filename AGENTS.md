@@ -13,7 +13,7 @@
 
 - edit directly for small fixes, assign sub-agents for tasks that have no-overlaps, such as 2 seperate files.
 - don't over engineer code that is not nessesary.
-- upon completing a fix or a feature, check the diff and ask the user for whether to commit or not
+- upon completing a fix or a feature, check the diff and commit
 - Read CURRENT_STATE.md after finishing feature or fixing bugs, update if it differs from current game state.
 - Use Godot 4.x GDScript only
 - if something is risky to change, such as possible breaks in "uid://", ask the user to change it in the godot editor
