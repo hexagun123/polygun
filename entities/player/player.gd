@@ -663,10 +663,12 @@ func _release_dash_exceptions() -> void:
 	_dash_exceptions.clear()
 
 
-func take_damage(amount: int, from_position: Vector2) -> void:
+## Returns true when the hit actually landed (false while invulnerable).
+func take_damage(amount: int, from_position: Vector2) -> bool:
 	if _dead or _invulnerability_timer > 0.0 or amount <= 0:
-		return
+		return false
 	_apply_damage(amount, from_position)
+	return true
 
 
 ## Ending a dash inside an enemy must hurt even though the dash grants
