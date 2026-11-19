@@ -40,37 +40,38 @@ Decisions:
 - Bullet time slows the world but not the player.
 - Dash core ships before the wave slice; combo and bullet time come after.
 
-### Stage A — dash core (implemented)
+### Stage A — dash core — ✅ completed (2026-11-19)
 
 Charge → dash:
 
-- Hold LMB (`dash` action) to charge over 1.0 s; release to dash toward the cursor.
-- Distance 150 → 520 px, speed 1200 → 1900 px/s, damage 2 → 3.
-- 0.25 s cooldown after the dash ends; i-frames during the dash + ~0.05 s.
-- Movement at 35% speed while charging; aim stays free.
+- [x] Hold LMB (`dash` action) to charge over 1.0 s; release to dash toward the cursor.
+- [x] Distance 150 → 520 px, speed 1200 → 1900 px/s, damage 2 → 3.
+- [x] 0.25 s cooldown after the dash ends; i-frames during the dash + ~0.05 s.
+- [x] Movement at 35% speed while charging; aim stays free.
 
 Movement and damage:
 
-- `move_and_slide` at dash velocity; end the dash early on wall contact.
-- Per physics frame, a circle shape query (layer 1, player radius + 4) damages each enemy once per dash via a hit set.
-- Contact damage ignored during i-frames.
+- [x] `move_and_slide` at dash velocity; end the dash early on wall contact.
+- [x] Per physics frame, a circle shape query (layer 1, player radius + 4) damages each enemy once per dash via a hit set.
+- [x] Contact damage ignored during i-frames.
 
 Readability:
 
-- Charge preview `Line2D` from the player toward the cursor, length = dash distance.
-- Outline width/colour grows with charge (set `outline.width` / `default_color` directly).
-- Optional dash trail and SFX (rising `pitch_scale` on a generated tone, noise whoosh on release).
+- [x] Charge preview `Line2D` from the player toward the cursor, length = dash distance.
+- [x] Outline width/colour grows with charge (set `outline.width` / `default_color` directly).
+- [x] SFX (rising `pitch_scale` on a generated tone, noise whoosh on release).
+- [ ] Optional dash trail (`entities/fx/dash_trail.gd` not added).
 
 Gun removal:
 
-- Remove `ProjectileScript`, fire cooldown/muzzle/audio and `_fire()` from `player.gd`.
-- Rename the `fire` input action to `dash` (LMB) in `project.godot`.
+- [x] Remove `ProjectileScript`, fire cooldown/muzzle/audio and `_fire()` from `player.gd`.
+- [x] Rename the `fire` input action to `dash` (LMB) in `project.godot`.
 
-Stage A files: `entities/player/player.gd`, `project.godot`, `audio/sfx.gd`, optional `entities/fx/dash_trail.gd`.
+Stage A files: `entities/player/player.gd`, `project.godot`, `audio/sfx.gd` (no dash trail).
 
-Acceptance: charge preview grows and movement slows; release dashes; each enemy takes damage once per dash; walls stop the dash; i-frames block contact damage; tap gives a min dash; no projectile spawns; no script errors.
+Acceptance (verified with a temporary headless Godot 4.7.2 harness; game feel still needs a manual run): [x] charge preview grows and movement slows; [x] release dashes; [x] each enemy takes damage once per dash; [x] walls stop the dash; [x] i-frames block contact damage; [x] tap gives a min dash; [x] no projectile spawns; [x] no script errors.
 
-### Stage B — wave slice
+### Stage B — wave slice (next)
 
 - 3 / 5 / 7 enemies per wave, spawned at once on a 450–700 px ring around the player, clamped inside the arena (±1400); 2 s intermission.
 - Player HP 5; death = game over; clearing wave 3 spawns the boss; boss death = win.
@@ -138,7 +139,7 @@ Original touch points (implemented):
 
 ## Later phases
 
-1. Dash core — charge/release dash becomes the main attack; gun removed for now.
+1. ✅ Dash core — charge/release dash is the main attack; gun removed for now.
 2. Wave slice — 3 waves + placeholder boss (chaser + charge) + HUD + game over/restart.
 3. Combo + bullet time — combo scaling, then world-slowing bullet time.
 4. Enemy/boss pools; upgrade-only inheritance — stats/unlocks persist across runs; no persistent `Player` node.
@@ -151,6 +152,6 @@ Original touch points (implemented):
 
 ## Handoff
 
-- Implement Stage A with Godot 4.x GDScript; verify in the editor.
+- [x] Stage A implemented with Godot 4.x GDScript and verified headless; play the main scene once to tune feel.
 - Keep `.gd.uid` sidecars; ask the user to make UID-sensitive changes in the editor.
-- Next after Stage A: Stage B (wave slice), then combo/bullet time.
+- Next: Stage B (wave slice), then combo/bullet time.

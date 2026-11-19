@@ -81,7 +81,7 @@ No pause, restart, or controller/touch input.
 
 ### `audio/sfx.gd` — `Sfx`
 - Generates 16-bit mono WAVs at 22050 Hz at runtime; no audio assets on disk.
-- `make_tone(start_freq, end_freq, duration, volume)` — used for the charge tone (220 → 440 Hz, 1.0 s; pitch-scaled while charging).
+- `make_tone(start_freq, end_freq, duration, volume)` — used for the charge tone (220 → 440 Hz, 1.5 s; pitch-scaled while charging).
 - `make_noise(duration, volume)` — used for enemy hits (0.06 s) and the dash whoosh (0.15 s).
 - Volume is the raw int16 amplitude scale (e.g. 12000 ≈ 0.37 full scale).
 
