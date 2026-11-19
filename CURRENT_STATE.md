@@ -15,10 +15,12 @@ Snapshot of what the game actually does today, written as planning input. Comple
 2. `WaveDirector` starts wave 1: 3 red pentagons spawn 450–700 px around the player and chase.
 3. Aim with the mouse. Press LMB to dash instantly toward the cursor; hold LMB to wind the *next* dash (preview line grows; movement is never slowed). The wind is spent by the dash.
 4. The dash lasts 0.1 s and wind maps distance 180–420 px, so distance sets speed (1800–4200 px/s) and damage (2–4). It passes through enemies, damages each one once per dash along the travelled segment, and stops early on walls. I-frames cover the dash + 0.05 s.
-5. Enemies flash white, get knocked back, and burst into shards when killed.
-6. Touching an enemy costs 1 HP, the boss costs 2 (player has 5). At 0 HP the run ends in game over.
-7. Clearing waves 1–3 (3 / 5 / 7 enemies, 2 s between waves) spawns the placeholder boss. Killing it wins the run.
-8. 0.8 s after a win or loss the tree pauses and the HUD shows an overlay; press `R` to restart from wave 1.
+5. A dash that crosses an enemy and ends within 1.5 × its radius of its centre **executes** it: ×3 damage and +1 combo. Ending the dash inside the enemy costs the player 1 HP instead. The combo breaks on any dash that executes nothing, after 1 s without an execute, or when the player takes a hit.
+6. Bosses execute at 2 × radius, and a boss execute resets the combo — unless the hit lands inside the tighter perfect band (1.1 × radius) or kills it.
+7. Enemies flash white, get knocked back, and burst into shards when killed.
+8. Touching an enemy costs 1 HP, the boss costs 2 (player has 5). At 0 HP the run ends in game over.
+9. Clearing waves 1–3 (3 / 5 / 7 enemies, 2 s between waves) spawns the placeholder boss. Killing it wins the run.
+10. 0.8 s after a win or loss the tree pauses and the HUD shows an overlay; press `R` to restart from wave 1.
 
 ## Controls
 
@@ -46,7 +48,8 @@ No pause menu or controller/touch input.
   - Dash lasts 0.1 s; distance = 180→420 px, speed = distance / 0.1 (1800→4200 px/s), damage = 2→4.
   - Preview `Line2D` shows the stored wind distance; outline widens/brightens with wind; rising tone while holding.
   - Moves with `move_and_slide`, ends early on wall contact. Enemies get temporary collision exceptions so the player passes through them.
-  - Hits are resolved geometrically against the segment travelled each physics frame (closest point on segment to the enemy centre), so nothing tunnels at 4200 px/s. Each enemy takes damage once per dash (instance-id set).
+  - Hits are resolved geometrically as the dash travels, then **classified once when the dash ends**: ending inside the body (`d ≤ body_ratio·radius`) costs the player 1 HP (bypassing dash i-frames); crossing the body and ending within `execute_ratio·radius` executes for ×3 damage; everything else takes a normal hit.
+  - Execution builds the combo (`+1`), which breaks on a non-executing dash, after 1 s without an execute, or when the player takes a hit. Emits `combo_changed(combo)`.
   - I-frames for dash duration + 0.05 s; 0.12 s cooldown after dash ends. Noise whoosh on dash start.
   - Presses made while dashing / cooling down are buffered for 0.2 s instead of being dropped.
   - Dash end keeps 18 % of dash speed as momentum that decays at 2800 px/s², so landing slides instead of stopping dead.
@@ -59,10 +62,12 @@ No pause menu or controller/touch input.
 - Movement hook: `_get_desired_velocity(delta, player)` (default chase at `speed`); subclasses override only this.
 - Contact damage via distance check (`enemy.radius + player.radius`), 1 damage.
 - HP 3. On hit: white flash 0.08 s, knockback 260 px/s × `knockback_scale` decaying at 900 px/s², noise SFX.
+- Execution data (exported, ratio-based): `execute_ratio` 1.5, `body_ratio` 1.0, `perfect_ratio` 0 (disabled), `execute_damage_scale` 3, `execute_breaks_combo` false.
 - On death: emits `died`, spawns `DeathBurst`, plays impact through a temporary sibling player, then frees.
 
 ### `entities/enemy/boss.gd` — `Boss` (extends `Enemy`)
 - Hexagon, radius 48, magenta, outline 3; HP 20, contact damage 2, speed 90 px/s, `knockback_scale` 0.35.
+- Execution: `execute_ratio` 2.0 (48–96 px), `perfect_ratio` 1.1 (48–52.8 px, keeps the combo), `execute_breaks_combo` true.
 - State machine in `_get_desired_velocity()`: `CHASE` (90 px/s) → `WINDUP` (0.45 s, telegraphed) → `CHARGE` (600 px/s, locked direction, 0.4 s, ends early on wall) → `RECOVER` (0.7 s). Triggers within 500 px after cooldown (1.0 s initial, 2.5 s after).
 - Telegraphs via outline width/color and `body.scale` only; `body.color` stays for hit flash.
 
@@ -74,7 +79,7 @@ No pause menu or controller/touch input.
 
 ### `ui/hud.gd` — `Hud` (CanvasLayer)
 - Built in code; `process_mode = ALWAYS`, `layer = 10`, last in scene.
-- HP pips (per `max_health`), `WAVE n / 3` label, boss bar driven by boss `health_changed`.
+- HP pips (per `max_health`), `WAVE n / 3` label, `COMBO n` counter top-right (hidden at zero), boss bar driven by boss `health_changed`.
 - End overlay (`VICTORY` / `GAME OVER` + "Press R to restart"). `R` unpauses and reloads the scene.
 - Binds via groups (`&"player"`, `&"director"`) deferred; seeds initial wave from director state.
 
@@ -111,15 +116,16 @@ TestingArena (Node2D)
 | Player | radius 24, speed 300, HP 5, damage i-frames 0.7 s, physics 120 Hz |
 | Dash | wind 0→1 over 0.9 s (spent on dash), distance 180–420, duration 0.1 s → speed 1800–4200, damage 2–4, cooldown 0.12 s, i-frames dash+0.05 s |
 | Feel | input buffer 0.2 s, momentum carry 18 % (decay 2800), camera look-ahead 45 px walk / 90 px cap, smoothing 10 → 55 |
-| Enemy | radius 20, speed 140, HP 3, contact 1, knockback 260/900 |
+| Enemy | radius 20, speed 140, HP 3, contact 1, knockback 260/900, execute 1.5·s, body 1.0·s |
 | Waves | 3/5/7, ring 450–700, clamp ±1400, clearance 320, intermission 2 s |
-| Boss | hexagon r48, HP 20, contact 2, speed 90, charge 600; windup 0.45, charge 0.4, recover 0.7, cooldown 2.5 s (1.0 initial), trigger 500 px, knockback ×0.35 |
+| Boss | hexagon r48, HP 20, contact 2, speed 90, charge 600; windup 0.45, charge 0.4, recover 0.7, cooldown 2.5 s (1.0 initial), trigger 500 px, knockback ×0.35, execute 2.0·s, perfect 1.1·s |
+| Combo | 1 s window, execute damage ×3, boss execute resets the chain |
 | End | overlay on end, pause after 0.8 s |
 
 ## Not implemented (gaps relevant to the plan)
 
-- No combo/damage multiplier or bullet time (Stage C/D).
-- No feel pass (hit-stop, shake, ghosts, damage numbers, zoom punch, hurt feedback; Stage F).
+- No bullet time yet (Stage 3), no damage multiplier from combo.
+- No feel pass (hit-stop, shake, ghosts, damage numbers, zoom punch, hurt feedback; Stage 4).
 - No rebalance pass (Stage E), upgrades/inheritance, currency, level/arena pool, or score.
 - No pause menu; `R` only on win/lose overlay.
 - One enemy type + placeholder boss; dash-only attack (`projectile.gd` unreferenced).

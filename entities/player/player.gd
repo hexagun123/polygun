@@ -3,6 +3,7 @@ extends Polygon
 
 signal health_changed(current: int, maximum: int)
 signal died
+signal combo_changed(combo: int)
 
 const SfxScript = preload("res://audio/sfx.gd")
 
@@ -47,9 +48,12 @@ enum DashState {
 @export var momentum_decay: float = 2800.0
 
 const DASH_HIT_RADIUS_BONUS: float = 4.0
+## Seconds an execution chain survives without a new execution.
+const COMBO_WINDOW: float = 1.0
 
 var camera: Camera2D = Camera2D.new()
 var health: int = 5
+var combo: int = 0
 var wind_audio: AudioStreamPlayer
 var dash_audio: AudioStreamPlayer
 
@@ -67,8 +71,12 @@ var _cooldown_timer: float = 0.0
 var _dash_direction: Vector2 = Vector2.RIGHT
 var _dash_speed: float = 0.0
 var _dash_damage: int = 1
-var _dash_time_left: float = 0.0
-var _dash_hit_ids: Dictionary = {}
+## Exact distance still to travel in this dash (never overshoots a frame).
+var _dash_remaining: float = 0.0
+## Enemy instance id -> closest distance from the dash path to its centre.
+var _dash_crossings: Dictionary = {}
+var _dash_executed: bool = false
+var _combo_timer: float = 0.0
 var _dash_buffer: float = 0.0
 var _momentum: Vector2 = Vector2.ZERO
 var _dash_exceptions: Array[Node] = []
@@ -133,6 +141,10 @@ func _physics_process(delta: float) -> void:
 	_dash_buffer = maxf(_dash_buffer - delta, 0.0)
 	if Input.is_action_just_pressed(&"dash"):
 		_dash_buffer = DASH_BUFFER_TIME
+	if combo > 0:
+		_combo_timer = maxf(_combo_timer - delta, 0.0)
+		if _combo_timer <= 0.0:
+			_break_combo()
 	if _flash_timer > 0.0:
 		_flash_timer = maxf(_flash_timer - delta, 0.0)
 		if _flash_timer <= 0.0 and body != null:
@@ -237,9 +249,10 @@ func _start_dash() -> void:
 	else:
 		_dash_direction = Vector2.RIGHT.rotated(rotation)
 
-	_dash_time_left = dash_duration
+	_dash_remaining = distance
 	_dash_state = DashState.DASHING
-	_dash_hit_ids.clear()
+	_dash_crossings.clear()
+	_dash_executed = false
 
 	# The wind is spent on this dash; holding again loads the next one.
 	_wind = 0.0
@@ -252,7 +265,7 @@ func _start_dash() -> void:
 			add_collision_exception_with(enemy as PhysicsBody2D)
 			_dash_exceptions.append(enemy)
 
-	_invulnerability_timer = maxf(_invulnerability_timer, _dash_time_left + dash_invulnerability_after)
+	_invulnerability_timer = maxf(_invulnerability_timer, dash_duration + dash_invulnerability_after)
 
 	_reset_wind_visuals()
 	if wind_audio != null:
@@ -265,12 +278,18 @@ func _start_dash() -> void:
 
 func _update_dash(delta: float) -> void:
 	var from: Vector2 = global_position
-	velocity = _dash_direction * _dash_speed
-	move_and_slide()
 
-	# Resolve hits against the segment actually travelled this frame, so a
-	# 4200 px/s dash cannot tunnel past anything and a wall stop is exact.
-	_damage_enemies_on_path(from, global_position)
+	# Step by remaining distance, not by a timer, so the dash lands exactly on
+	# its wind distance. A timer overshoots by a whole frame at 4200 px/s,
+	# which is wider than the execute bands.
+	var step: float = minf(_dash_speed * delta, _dash_remaining)
+	velocity = _dash_direction * (step / maxf(delta, 0.0001))
+	move_and_slide()
+	_dash_remaining -= step
+
+	# Track how close the travelled segment got to each enemy, so a 4200 px/s
+	# dash cannot tunnel past anything and a wall stop stays exact.
+	_track_dash_crossings(from, global_position)
 
 	# Enemies have collision exceptions during the dash, so any slide hit is a
 	# wall: end the dash early on contact.
@@ -278,12 +297,11 @@ func _update_dash(delta: float) -> void:
 		_end_dash()
 		return
 
-	_dash_time_left -= delta
-	if _dash_time_left <= 0.0:
+	if _dash_remaining <= 0.0001:
 		_end_dash()
 
 
-func _damage_enemies_on_path(from: Vector2, to: Vector2) -> void:
+func _track_dash_crossings(from: Vector2, to: Vector2) -> void:
 	var segment: Vector2 = to - from
 	var segment_len_sq: float = segment.length_squared()
 
@@ -292,31 +310,101 @@ func _damage_enemies_on_path(from: Vector2, to: Vector2) -> void:
 		if enemy == null or not is_instance_valid(enemy):
 			continue
 
-		var instance_id: int = enemy.get_instance_id()
-		if _dash_hit_ids.has(instance_id):
-			continue
-
-		# Closest point on the travelled segment to the enemy centre.
 		var t: float = 0.0
 		if segment_len_sq > 0.0001:
 			t = clampf((enemy.global_position - from).dot(segment) / segment_len_sq, 0.0, 1.0)
 		var closest: Vector2 = from + segment * t
+		var path_distance: float = closest.distance_to(enemy.global_position)
 
-		var hit_radius: float = radius + enemy.radius + DASH_HIT_RADIUS_BONUS
-		if closest.distance_squared_to(enemy.global_position) > hit_radius * hit_radius:
+		var instance_id: int = enemy.get_instance_id()
+		var previous: float = _dash_crossings.get(instance_id, INF)
+		if path_distance < previous:
+			_dash_crossings[instance_id] = path_distance
+
+
+## Classifies everything the dash met, using where the dash actually ended.
+## Body > execute > normal hit, in that priority.
+func _resolve_dash_hits() -> void:
+	var end_pos: Vector2 = global_position
+	var body_source: Vector2 = Vector2.ZERO
+	var body_hit: bool = false
+
+	for node: Node in get_tree().get_nodes_in_group(&"enemies"):
+		var enemy: Enemy = node as Enemy
+		if enemy == null or not is_instance_valid(enemy):
 			continue
 
-		_dash_hit_ids[instance_id] = true
-		enemy.take_damage(_dash_damage, _dash_direction)
+		var instance_id: int = enemy.get_instance_id()
+		var end_distance: float = end_pos.distance_to(enemy.global_position)
+		var size: float = enemy.radius
+
+		# Ended inside the body: costs the player a hit and deals no damage.
+		if end_distance <= size * enemy.body_ratio:
+			body_hit = true
+			body_source = enemy.global_position
+			continue
+
+		var path_distance: float = _dash_crossings.get(instance_id, INF)
+		var hit_radius: float = radius + size + DASH_HIT_RADIUS_BONUS
+		if path_distance > hit_radius:
+			continue
+
+		# Execution needs the path to have gone through the body itself.
+		if path_distance <= size and end_distance <= size * enemy.execute_ratio:
+			_execute(enemy, end_distance, size)
+		else:
+			enemy.take_damage(_dash_damage, _dash_direction)
+
+	if body_hit:
+		_take_body_damage(body_source)
+
+
+func _execute(enemy: Enemy, end_distance: float, size: float) -> void:
+	var damage: int = _dash_damage * enemy.execute_damage_scale
+	var perfect: bool = enemy.perfect_ratio > 0.0 and end_distance <= size * enemy.perfect_ratio
+
+	enemy.take_damage(damage, _dash_direction)
+	var killed: bool = enemy.health <= 0
+	_dash_executed = true
+
+	# The boss cashes your chain: a normal execute resets it, a perfect one or
+	# a kill keeps it going.
+	if enemy.execute_breaks_combo and not perfect and not killed:
+		_break_combo()
+	else:
+		_add_combo()
+
+
+func _add_combo() -> void:
+	combo += 1
+	_combo_timer = COMBO_WINDOW
+	combo_changed.emit(combo)
+
+
+func _break_combo() -> void:
+	if combo == 0:
+		return
+	combo = 0
+	_combo_timer = 0.0
+	combo_changed.emit(0)
 
 
 func _end_dash() -> void:
+	_resolve_dash_hits()
 	_release_dash_exceptions()
+
+	if _dead:
+		return
+
 	_dash_state = DashState.READY
 	_cooldown_timer = dash_cooldown
 	# Keep part of the dash speed instead of stopping dead.
 	_momentum = _dash_direction * _dash_speed * dash_momentum_carry
 	velocity = _momentum
+
+	# A dash that executes nothing drops the chain.
+	if not _dash_executed:
+		_break_combo()
 
 
 func _cancel_dash() -> void:
@@ -341,12 +429,24 @@ func _release_dash_exceptions() -> void:
 func take_damage(amount: int, from_position: Vector2) -> void:
 	if _dead or _invulnerability_timer > 0.0 or amount <= 0:
 		return
+	_apply_damage(amount, from_position)
 
+
+## Ending a dash inside an enemy must hurt even though the dash grants
+## i-frames, so this deliberately bypasses them.
+func _take_body_damage(from_position: Vector2) -> void:
+	if _dead:
+		return
+	_apply_damage(1, from_position)
+
+
+func _apply_damage(amount: int, _from_position: Vector2) -> void:
 	health -= amount
 	_invulnerability_timer = damage_cooldown
 	_flash_timer = HIT_FLASH_TIME
 	if body != null:
 		body.color = Color(1.0, 0.25, 0.25)
+	_break_combo()
 	health_changed.emit(maxi(health, 0), max_health)
 
 	if health <= 0:
@@ -359,6 +459,7 @@ func _die() -> void:
 
 	_dead = true
 	health = 0
+	_break_combo()
 	_cancel_dash()
 	velocity = Vector2.ZERO
 	if body != null:

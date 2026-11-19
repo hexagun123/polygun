@@ -21,6 +21,7 @@ The dash combat design was reworked after playtesting: the old charge-up read as
 
 - **Stage 0 — Responsiveness** — ✅ done (headless-verified; camera feel still needs a manual run).
 - **Stage 1 — Instant dash + wind** — ✅ done (headless-verified; wind feel still needs a manual run).
+- **Stage 2 — Execute + combo** — ✅ done (headless-verified; band feel still needs a manual run).
 
 ## Locked design — dash combat v5
 
@@ -127,6 +128,16 @@ Acceptance: verified headless — press dashes instantly at ~1800 px/s with no c
 - Keep the temporary collision exceptions and i-frames for the dash itself (body damage is a separate check, not a physics hit).
 
 Acceptance: crossing + ending in the band executes; ending outside the band is a normal hit; ending inside costs HP (or combo); the boss perfect band keeps the combo; whiff breaks it.
+
+### Stage 2 — Execute + combo (done)
+
+- [x] Ratio bands on `Enemy` (`execute_ratio`, `perfect_ratio`, `body_ratio`, `execute_damage_scale`, `execute_breaks_combo`).
+- [x] Body self-damage when the dash ends inside an enemy (bypasses the dash's i-frames).
+- [x] Combo meter (+1 per execute), whiff break, 1 s expiry, boss perfect band, boss reset on a normal execute.
+- [x] HUD `COMBO n` counter.
+- [x] Hit resolution moved to dash end; per-frame path tracking only records closest approach.
+
+Acceptance: verified headless — execute kills a 3 HP enemy and adds combo; a non-executing dash breaks it; ending inside costs 1 HP and clears the combo; the boss perfect band keeps the combo while a normal boss execute resets it (6 damage each). Still needs a manual run.
 
 ### Stage 3 — Bullet time
 

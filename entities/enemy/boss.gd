@@ -32,6 +32,9 @@ func _init() -> void:
 	contact_damage = 2
 	speed = 90.0
 	knockback_scale = 0.35
+	execute_ratio = 2.0
+	perfect_ratio = 1.1
+	execute_breaks_combo = true
 
 
 func _ready() -> void:

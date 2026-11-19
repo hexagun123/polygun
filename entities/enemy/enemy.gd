@@ -17,6 +17,19 @@ const BODY_COLOR: Color = Color(1.0, 0.35, 0.3)
 @export var knockback_scale: float = 1.0
 @export var hit_flash_time: float = 0.08
 
+@export_group("Execution")
+## Distance from the dash endpoint to this object's centre, as a multiple of
+## radius, within which a dash that crossed the body executes.
+@export var execute_ratio: float = 1.5
+## Tighter optional band: executing inside it keeps the combo even when
+## `execute_breaks_combo` is set (0 disables it).
+@export var perfect_ratio: float = 0.0
+## Dash ending inside this multiple of radius costs the player a hit.
+@export var body_ratio: float = 1.0
+@export var execute_damage_scale: int = 3
+## Bosses reset the chain when executed, unless the hit is perfect or lethal.
+@export var execute_breaks_combo: bool = false
+
 ## When false the enemy keeps its current facing (used while charging).
 var face_target: bool = true
 

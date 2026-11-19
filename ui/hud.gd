@@ -10,12 +10,14 @@ const PIP_FILLED: Color = Color(0.35, 1.0, 0.45)
 const PIP_EMPTY: Color = Color(0.16, 0.19, 0.24, 0.9)
 const BOSS_BACK: Color = Color(0.22, 0.08, 0.1, 0.9)
 const BOSS_FILL: Color = Color(0.95, 0.25, 0.3)
+const COMBO_FILL: Color = Color(1.0, 0.82, 0.3)
 const DIM: Color = Color(0.0, 0.0, 0.0, 0.7)
 
 var _pip_row: HBoxContainer
 var _pips: Array[ColorRect] = []
 var _pip_max: int = 0
 var _wave_label: Label
+var _combo_label: Label
 var _boss_box: VBoxContainer
 var _boss_fill: ColorRect
 var _end_overlay: Control
@@ -52,6 +54,18 @@ func _build() -> void:
 	_wave_label.offset_top = MARGIN
 	_wave_label.offset_bottom = MARGIN + 34.0
 	root.add_child(_wave_label)
+
+	# Execution chain, top-right; hidden while at zero.
+	_combo_label = _make_label("", 32)
+	_combo_label.name = "ComboLabel"
+	_combo_label.add_theme_color_override(&"font_color", COMBO_FILL)
+	_combo_label.anchor_left = 1.0
+	_combo_label.anchor_right = 1.0
+	_combo_label.offset_left = -MARGIN - 220.0
+	_combo_label.offset_right = -MARGIN
+	_combo_label.offset_top = MARGIN
+	_combo_label.offset_bottom = MARGIN + 40.0
+	root.add_child(_combo_label)
 
 	# Boss bar, hidden until the director announces a boss.
 	_boss_box = VBoxContainer.new()
@@ -121,6 +135,7 @@ func _bind_scene() -> void:
 	var player := get_tree().get_first_node_in_group(&"player") as Player
 	if player != null:
 		player.health_changed.connect(_on_player_health_changed)
+		player.combo_changed.connect(_on_combo_changed)
 		_rebuild_pips(player.max_health, player.health)
 
 	var director := get_tree().get_first_node_in_group(&"director")
@@ -161,6 +176,10 @@ func _on_player_health_changed(current: int, maximum: int) -> void:
 
 func _on_wave_changed(wave: int, total: int) -> void:
 	_wave_label.text = "WAVE %d / %d" % [wave, total]
+
+
+func _on_combo_changed(value: int) -> void:
+	_combo_label.text = ("COMBO %d" % value) if value > 0 else ""
 
 
 func _on_boss_spawned(boss: Node) -> void:
