@@ -59,7 +59,13 @@ enum DashState {
 
 const DASH_HIT_RADIUS_BONUS: float = 4.0
 ## Seconds an execution chain survives without a new execution.
-const COMBO_WINDOW: float = 1.0
+const COMBO_WINDOW: float = 1.5
+## Where the first execute snaps the world to.
+const BULLET_TIME_FIRST: float = 0.8
+## How far (px) the landing may be nudged to fall inside an execute band.
+const EXECUTE_ASSIST_RANGE: float = 50.0
+## Where inside the band the assist aims, as a multiple of radius.
+const EXECUTE_ASSIST_GAP: float = 1.5
 
 # Feel (Stage 4).
 const HITSTOP_HIT: float = 0.035
@@ -268,6 +274,43 @@ func dash_distance() -> float:
 	return dash_max_distance * wind_curve()
 
 
+## Landing assist: if the dash already crosses an enemy and the landing is
+## close to its execute band, move the landing into the band. Aim still has to
+## be right; a small slip in the hold length no longer kills the chain.
+func _assisted_distance(raw: float, direction: Vector2) -> float:
+	if raw <= 0.01:
+		return raw
+
+	var best_delta: float = INF
+	var best_distance: float = raw
+
+	for node: Node in get_tree().get_nodes_in_group(&"executables"):
+		var target: Executable = node as Executable
+		if target == null or not is_instance_valid(target) or target.proximity_execution:
+			continue
+
+		var offset: Vector2 = target.global_position - global_position
+		var along: float = offset.dot(direction)
+		if along <= 0.0:
+			continue
+		# Must actually cross the body, same rule as execution.
+		if absf(offset.cross(direction)) > target.radius:
+			continue
+
+		var ideal: float = along + target.radius * EXECUTE_ASSIST_GAP
+		if ideal > dash_max_distance:
+			continue
+
+		var delta: float = absf(ideal - raw)
+		if delta > EXECUTE_ASSIST_RANGE or delta >= best_delta:
+			continue
+
+		best_delta = delta
+		best_distance = ideal
+
+	return best_distance
+
+
 func _update_wind_visuals() -> void:
 	var active: bool = _winding or _dash_buffer > 0.0
 
@@ -287,9 +330,10 @@ func _update_aim_marker(active: bool) -> void:
 	if not active:
 		return
 
-	var distance: float = dash_distance()
 	var origin: Vector2 = global_position
-	var endpoint: Vector2 = origin + Vector2.RIGHT.rotated(rotation) * distance
+	var direction: Vector2 = Vector2.RIGHT.rotated(rotation)
+	var distance: float = _assisted_distance(dash_distance(), direction)
+	var endpoint: Vector2 = origin + direction * distance
 	_aim_marker.global_position = endpoint
 
 	var segment: Vector2 = endpoint - origin
@@ -414,17 +458,16 @@ func _emit_dash_ghosts(distance: float) -> void:
 
 
 func _start_dash() -> void:
-	var ratio: float = wind_curve()
-	var distance: float = dash_distance()
-	_dash_speed = distance / maxf(dash_duration, 0.001)
-	_dash_damage = roundi(lerpf(float(dash_min_damage), float(dash_max_damage), ratio))
-
 	var to_mouse: Vector2 = _aim_point() - global_position
 	if to_mouse.length_squared() > 0.0001:
 		_dash_direction = to_mouse.normalized()
 	else:
 		_dash_direction = Vector2.RIGHT.rotated(rotation)
 
+	var ratio: float = wind_curve()
+	var distance: float = _assisted_distance(dash_distance(), _dash_direction)
+	_dash_speed = distance / maxf(dash_duration, 0.001)
+	_dash_damage = roundi(lerpf(float(dash_min_damage), float(dash_max_damage), ratio))
 	_dash_remaining = distance
 	_dash_state = DashState.DASHING
 	_winding = false
@@ -610,10 +653,14 @@ func _break_combo() -> void:
 
 ## The world slows logarithmically with the chain; the player does not slow,
 ## because every player timer and movement is compensated by _inv_time_scale.
+## Two-tier: the first execute pops to a clearly felt slow, then each further
+## point adds a smaller step.
 func _update_bullet_time() -> void:
 	var target: float = 1.0
-	if combo > 0:
-		target = 1.0 - 0.15 * log(1.0 + float(combo))
+	if combo == 1:
+		target = BULLET_TIME_FIRST
+	elif combo > 1:
+		target = BULLET_TIME_FIRST - 0.10 * log(float(combo))
 	TimeControlScript.set_bullet_time(target)
 
 

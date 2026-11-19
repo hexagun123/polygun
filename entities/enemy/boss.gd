@@ -47,7 +47,7 @@ func _init() -> void:
 	contact_damage = 2
 	speed = 90.0
 	knockback_scale = 0.35
-	execute_ratio = 2.0
+	execute_ratio = 2.5
 	perfect_ratio = 1.1
 	body_ratio = 0.6
 	execute_breaks_combo = true

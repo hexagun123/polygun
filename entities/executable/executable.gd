@@ -14,7 +14,7 @@ signal health_changed(current: int, maximum: int)
 @export_group("Execution")
 ## Distance from the dash endpoint to this object's centre, as a multiple of
 ## radius, within which a dash that crossed the body executes.
-@export var execute_ratio: float = 2.0
+@export var execute_ratio: float = 2.5
 ## Tighter optional band: executing inside it keeps the combo even when
 ## `execute_breaks_combo` is set (0 disables it).
 @export var perfect_ratio: float = 0.0
