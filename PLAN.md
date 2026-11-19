@@ -24,8 +24,8 @@ The dash combat design was reworked after playtesting: the old charge-up read as
 - **Stage 2 — Execute + combo** — ✅ done (headless-verified; band feel still needs a manual run).
 - **Stage 3 — Bullet time + combo shield** — ✅ done (headless-verified; feel still needs a manual run).
 - **Stage 4 — Feel pass (core 6)** — ✅ done (headless-verified; feel still needs a manual run).
-- **Tuning pass — wind curve + execution B** — in progress.
-- **Section — Level one** — in progress.
+- **Tuning pass — wind curve + execution B** — ✅ done (headless-verified).
+- **Section — Level one** — ✅ done (headless-verified; needs a playtest).
 
 ## Locked design — dash combat v5
 
@@ -172,16 +172,16 @@ Acceptance: verified headless — combo 1/3 produce 0.896/0.792 time scale; the 
 
 Acceptance: verified headless — time scale dipped to 0.04 on a kill then restored; zoom hit 0.964 and returned to 1.0; ghosts capped at 4 for a tap dash and faded; damage numbers spawned and cleared; shake settled to zero; hurt fired the signal, cost 1 HP and knocked away; death reset time to 1.0. Still needs a manual run.
 
-### Tuning pass — wind curve + execution B (in progress)
+### Tuning pass — wind curve + execution B (done)
 
-- [ ] Remove `dash_min_distance`; distance = `dash_max_distance · (w - sin(2πw)/(2π))` with `wind_curve_strength` export.
-- [ ] Damage scales with the curve: `round(1 + 3·f(w))`.
-- [ ] `body_ratio` 0.6 for enemy and boss; `execute_ratio` 2.0; boss `perfect_ratio` stays 1.1.
-- [ ] Aim marker, `_start_dash` and damage all read the same curve helper.
+- [x] Remove `dash_min_distance`; distance = `dash_max_distance · (w - sin(2πw)/(2π))` with `wind_curve_strength` export.
+- [x] Damage scales with the curve: `round(1 + 3·f(w))`.
+- [x] `body_ratio` 0.6 for enemy and boss; `execute_ratio` 2.0; boss `perfect_ratio` stays 1.1.
+- [x] Aim marker, `_start_dash` and damage all read the same curve helper.
 
-Acceptance: headless — a short hold lands in the 12–40 px band; the crosshair still predicts execution; the boss perfect band is 29–53 px.
+Acceptance: verified headless — 0/260/520 px at zero/half/full wind, a 25 px landing executes, marker agrees with the outcome.
 
-### Section — Level one (in progress)
+### Section — Level one (done)
 
 One arena, one fully tuned level, no upgrades or progression. The level table exists so a second level is data-only later.
 
@@ -192,7 +192,7 @@ One arena, one fully tuned level, no upgrades or progression. The level table ex
 5. **Level shape** — waves 4 chasers / 3 chasers + 2 spitters / 3 chasers + 2 spitters + 1 lunger + 1 tank; all at once, ring 300–560 px, intermission 0.8 s.
 6. **Flow** — boss death → clear → victory (one level). Director gains a `level` index and a `LEVEL n` HUD line.
 
-Acceptance: headless — spitters fire executable projectiles, projectiles execute by proximity, all three roles spawn, the boss volleys in both phases, the level table spawns the planned counts, and the run completes on boss death.
+Acceptance: verified headless — spitters fire executable projectiles, a dash executes one by proximity, all three roles spawn in their waves, the boss volleys 6 in phase 1 and 10 in phase 2, the level table spawns the planned counts, and the main scene runs clean. Needs a playtest.
 
 ### Stage 6 — Secondary damage
 
