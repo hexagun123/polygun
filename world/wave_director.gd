@@ -87,7 +87,7 @@ func _spawn_wave(count: int) -> void:
 		enemy.died.connect(_on_enemy_died)
 
 
-func _on_enemy_died(_enemy: Enemy) -> void:
+func _on_enemy_died(_enemy: Executable) -> void:
 	if state != State.FIGHTING:
 		return
 
@@ -120,7 +120,7 @@ func _spawn_boss() -> void:
 	boss_spawned.emit(_boss)
 
 
-func _on_boss_died(_boss_node: Enemy) -> void:
+func _on_boss_died(_boss_node: Executable) -> void:
 	if state != State.BOSS:
 		return
 	_finish(true)

@@ -297,19 +297,26 @@ func _update_aim_marker(active: bool) -> void:
 	var danger: bool = false
 	var execute: bool = false
 
-	for node: Node in get_tree().get_nodes_in_group(&"enemies"):
-		var enemy: Enemy = node as Enemy
-		if enemy == null or not is_instance_valid(enemy):
+	for node: Node in get_tree().get_nodes_in_group(&"executables"):
+		var target: Executable = node as Executable
+		if target == null or not is_instance_valid(target):
 			continue
 
-		var size: float = enemy.radius
-		var end_distance: float = endpoint.distance_to(enemy.global_position)
-		if end_distance <= size * enemy.body_ratio:
+		var end_distance: float = endpoint.distance_to(target.global_position)
+		if not target.proximity_execution and end_distance <= target.body_range():
 			danger = true
 			continue
-		if end_distance > size * enemy.execute_ratio:
+
+		var path_distance: float = _closest_path_distance(target.global_position, origin, segment, segment_len_sq)
+
+		if target.proximity_execution:
+			if path_distance <= target.execute_range():
+				execute = true
 			continue
-		if _closest_path_distance(enemy.global_position, origin, segment, segment_len_sq) <= size:
+
+		if end_distance > target.execute_range():
+			continue
+		if path_distance <= target.radius:
 			execute = true
 
 	var color: Color = MARKER_IDLE_COLOR
@@ -475,18 +482,18 @@ func _track_dash_crossings(from: Vector2, to: Vector2) -> void:
 	var segment: Vector2 = to - from
 	var segment_len_sq: float = segment.length_squared()
 
-	for node: Node in get_tree().get_nodes_in_group(&"enemies"):
-		var enemy: Enemy = node as Enemy
-		if enemy == null or not is_instance_valid(enemy):
+	for node: Node in get_tree().get_nodes_in_group(&"executables"):
+		var target: Executable = node as Executable
+		if target == null or not is_instance_valid(target):
 			continue
 
 		var t: float = 0.0
 		if segment_len_sq > 0.0001:
-			t = clampf((enemy.global_position - from).dot(segment) / segment_len_sq, 0.0, 1.0)
+			t = clampf((target.global_position - from).dot(segment) / segment_len_sq, 0.0, 1.0)
 		var closest: Vector2 = from + segment * t
-		var path_distance: float = closest.distance_to(enemy.global_position)
+		var path_distance: float = closest.distance_to(target.global_position)
 
-		var instance_id: int = enemy.get_instance_id()
+		var instance_id: int = target.get_instance_id()
 		var previous: float = _dash_crossings.get(instance_id, INF)
 		if path_distance < previous:
 			_dash_crossings[instance_id] = path_distance
@@ -501,19 +508,19 @@ func _resolve_dash_hits() -> void:
 	var hits: int = 0
 	var kills: int = 0
 
-	for node: Node in get_tree().get_nodes_in_group(&"enemies"):
-		var enemy: Enemy = node as Enemy
-		if enemy == null or not is_instance_valid(enemy):
+	for node: Node in get_tree().get_nodes_in_group(&"executables"):
+		var target: Executable = node as Executable
+		if target == null or not is_instance_valid(target):
 			continue
 
-		var instance_id: int = enemy.get_instance_id()
-		var end_distance: float = end_pos.distance_to(enemy.global_position)
-		var size: float = enemy.radius
+		var instance_id: int = target.get_instance_id()
+		var end_distance: float = end_pos.distance_to(target.global_position)
+		var size: float = target.radius
 
 		# Ended inside the body: costs the player a hit and deals no damage.
-		if end_distance <= size * enemy.body_ratio:
+		if not target.proximity_execution and end_distance <= target.body_range():
 			body_hit = true
-			body_source = enemy.global_position
+			body_source = target.global_position
 			continue
 
 		var path_distance: float = _dash_crossings.get(instance_id, INF)
@@ -521,15 +528,23 @@ func _resolve_dash_hits() -> void:
 		if path_distance > hit_radius:
 			continue
 
-		# Execution needs the path to have gone through the body itself.
-		if path_distance <= size and end_distance <= size * enemy.execute_ratio:
-			if _execute(enemy, end_distance, size):
+		var executed: bool = false
+		if target.proximity_execution:
+			# Small movers execute by the path clipping them, not by where the
+			# dash happens to end.
+			executed = path_distance <= target.execute_range()
+		else:
+			# Execution needs the path to have gone through the body itself.
+			executed = path_distance <= size and end_distance <= target.execute_range()
+
+		if executed:
+			if _execute(target, end_distance, size):
 				kills += 1
 			hits += 1
 		else:
-			_deal_damage(enemy, _dash_damage, NORMAL_DAMAGE_COLOR)
+			_deal_damage(target, _dash_damage, NORMAL_DAMAGE_COLOR)
 			hits += 1
-			if enemy.health <= 0:
+			if target.health <= 0:
 				kills += 1
 
 	if hits > 0:
@@ -543,17 +558,17 @@ func _resolve_dash_hits() -> void:
 
 
 ## Applies damage and its visual feedback. Returns true if the hit was lethal.
-func _execute(enemy: Enemy, end_distance: float, size: float) -> bool:
-	var damage: int = _dash_damage * enemy.execute_damage_scale
-	var perfect: bool = enemy.perfect_ratio > 0.0 and end_distance <= size * enemy.perfect_ratio
+func _execute(target: Executable, end_distance: float, size: float) -> bool:
+	var damage: int = _dash_damage * target.execute_damage_scale
+	var perfect: bool = target.perfect_ratio > 0.0 and end_distance <= size * target.perfect_ratio
 
-	_deal_damage(enemy, damage, EXECUTE_DAMAGE_COLOR)
-	var killed: bool = enemy.health <= 0
+	_deal_damage(target, damage, EXECUTE_DAMAGE_COLOR)
+	var killed: bool = target.health <= 0
 	_dash_executed = true
 
 	# The boss cashes your chain: a normal execute resets it, a perfect one or
 	# a kill keeps it going.
-	if enemy.execute_breaks_combo and not perfect and not killed:
+	if target.execute_breaks_combo and not perfect and not killed:
 		_break_combo()
 	else:
 		_add_combo()
@@ -561,8 +576,8 @@ func _execute(enemy: Enemy, end_distance: float, size: float) -> bool:
 	return killed
 
 
-func _deal_damage(enemy: Enemy, amount: int, color: Color) -> void:
-	enemy.take_damage(amount, _dash_direction)
+func _deal_damage(target: Executable, amount: int, color: Color) -> void:
+	target.take_damage(amount, _dash_direction)
 
 	var parent: Node = get_tree().current_scene
 	if parent == null:
@@ -571,10 +586,10 @@ func _deal_damage(enemy: Enemy, amount: int, color: Color) -> void:
 		return
 
 	var number := DamageNumberScript.new()
-	number.configure(amount, color, enemy.global_position)
+	number.configure(amount, color, target.global_position)
 	number.z_index = 20
 	parent.add_child(number)
-	number.global_position = enemy.global_position
+	number.global_position = target.global_position
 
 
 func _add_combo() -> void:
