@@ -1,6 +1,9 @@
 class_name Player
 extends Polygon
 
+signal health_changed(current: int, maximum: int)
+signal died
+
 const SfxScript = preload("res://audio/sfx.gd")
 
 const HIT_FLASH_TIME: float = 0.12
@@ -14,7 +17,7 @@ enum DashState {
 
 @export var speed: float = 300.0
 @export var camera_bounds_half_size: Vector2 = Vector2(1536.0, 1536.0)
-@export var max_health: int = 3
+@export var max_health: int = 5
 @export var damage_cooldown: float = 0.7
 
 @export_group("Dash")
@@ -32,7 +35,7 @@ enum DashState {
 const DASH_HIT_RADIUS_BONUS: float = 4.0
 
 var camera: Camera2D = Camera2D.new()
-var health: int = 3
+var health: int = 5
 var charge_audio: AudioStreamPlayer
 var dash_audio: AudioStreamPlayer
 
@@ -41,6 +44,7 @@ var _base_outline_width: float = 1.0
 var _base_outline_color: Color = Color.WHITE
 var _invulnerability_timer: float = 0.0
 var _flash_timer: float = 0.0
+var _dead: bool = false
 
 var _dash_state: int = DashState.READY
 var _charge_timer: float = 0.0
@@ -101,6 +105,8 @@ func _ready() -> void:
 	dash_audio.stream = SfxScript.make_noise(0.15, 14000.0)
 	add_child(dash_audio)
 
+	health_changed.emit(health, max_health)
+
 
 func _update_camera_limits() -> void:
 	# Limits apply to the visible rectangle, so the arena bounds can be used
@@ -113,6 +119,9 @@ func _update_camera_limits() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if _dead:
+		return
+
 	_invulnerability_timer = maxf(_invulnerability_timer - delta, 0.0)
 	_cooldown_timer = maxf(_cooldown_timer - delta, 0.0)
 	if _flash_timer > 0.0:
@@ -289,7 +298,7 @@ func _release_dash_exceptions() -> void:
 
 
 func take_damage(amount: int, from_position: Vector2) -> void:
-	if _invulnerability_timer > 0.0 or amount <= 0:
+	if _dead or _invulnerability_timer > 0.0 or amount <= 0:
 		return
 
 	health -= amount
@@ -297,13 +306,22 @@ func take_damage(amount: int, from_position: Vector2) -> void:
 	_flash_timer = HIT_FLASH_TIME
 	if body != null:
 		body.color = Color(1.0, 0.25, 0.25)
+	health_changed.emit(maxi(health, 0), max_health)
 
 	if health <= 0:
-		_respawn()
+		_die()
 
 
-func _respawn() -> void:
+func _die() -> void:
+	if _dead:
+		return
+
+	_dead = true
+	health = 0
 	_cancel_dash()
-	health = max_health
-	global_position = Vector2.ZERO
-	_invulnerability_timer = damage_cooldown
+	velocity = Vector2.ZERO
+	if body != null:
+		body.color = Color(0.35, 0.45, 0.35)
+	if outline != null:
+		outline.default_color = Color(0.5, 0.6, 0.5)
+	died.emit()

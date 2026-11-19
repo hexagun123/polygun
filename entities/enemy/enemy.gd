@@ -1,6 +1,9 @@
 class_name Enemy
 extends Polygon
 
+signal died(enemy: Enemy)
+signal health_changed(current: int, maximum: int)
+
 const SfxScript = preload("res://audio/sfx.gd")
 const DeathBurstScript = preload("res://entities/fx/death_burst.gd")
 
@@ -11,7 +14,11 @@ const BODY_COLOR: Color = Color(1.0, 0.35, 0.3)
 @export var max_health: int = 3
 @export var contact_damage: int = 1
 @export var knockback_force: float = 260.0
+@export var knockback_scale: float = 1.0
 @export var hit_flash_time: float = 0.08
+
+## When false the enemy keeps its current facing (used while charging).
+var face_target: bool = true
 
 var health: int = 3
 var hit_audio: AudioStreamPlayer
@@ -41,6 +48,8 @@ func _ready() -> void:
 	hit_audio.stream = SfxScript.make_noise(0.06, 9000.0)
 	add_child(hit_audio)
 
+	health_changed.emit(health, max_health)
+
 
 func _physics_process(delta: float) -> void:
 	if _flash_timer > 0.0:
@@ -49,17 +58,26 @@ func _physics_process(delta: float) -> void:
 			body.color = _base_color
 
 	var player := _get_player()
-	var chase_velocity: Vector2 = Vector2.ZERO
+	var desired_velocity: Vector2 = Vector2.ZERO
 	if player != null:
-		var to_player: Vector2 = player.global_position - global_position
-		if to_player.length_squared() > 0.001:
-			look_at(player.global_position)
-			chase_velocity = to_player.normalized() * speed
+		desired_velocity = _get_desired_velocity(delta, player)
+		if face_target:
+			var to_player: Vector2 = player.global_position - global_position
+			if to_player.length_squared() > 0.001:
+				look_at(player.global_position)
 		_try_contact_damage(player)
 
-	velocity = chase_velocity + _knockback
+	velocity = desired_velocity + _knockback
 	_knockback = _knockback.move_toward(Vector2.ZERO, KNOCKBACK_DECAY * delta)
 	move_and_slide()
+
+
+## Movement hook. The boss overrides this to run its attack state machine.
+func _get_desired_velocity(_delta: float, player: Node2D) -> Vector2:
+	var to_player: Vector2 = player.global_position - global_position
+	if to_player.length_squared() <= 0.001:
+		return Vector2.ZERO
+	return to_player.normalized() * speed
 
 
 func take_damage(amount: int, hit_direction: Vector2) -> void:
@@ -72,7 +90,9 @@ func take_damage(amount: int, hit_direction: Vector2) -> void:
 		body.color = Color.WHITE
 
 	if hit_direction.length_squared() > 0.0:
-		_knockback = hit_direction.normalized() * knockback_force
+		_knockback = hit_direction.normalized() * knockback_force * knockback_scale
+
+	health_changed.emit(maxi(health, 0), max_health)
 
 	if health <= 0:
 		_die()
@@ -82,6 +102,10 @@ func take_damage(amount: int, hit_direction: Vector2) -> void:
 
 
 func _die() -> void:
+	# Wave bookkeeping listens to this before the node is freed.
+	health = 0
+	died.emit(self)
+
 	var burst := DeathBurstScript.new()
 	burst.color = _base_color.lightened(0.15)
 	var burst_parent: Node = get_parent()

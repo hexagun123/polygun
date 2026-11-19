@@ -29,7 +29,15 @@ Dash core (Stage A) is implemented:
 - Gun code removed from `player.gd`; `projectile.gd` kept on disk unreferenced. `Enemy` now joins `&"enemies"` for the dash collision exceptions.
 - Verified with a headless Godot 4.7.2 smoke harness: damage once per dash, pass-through, wall stop, i-frames, charge slow/preview, no projectiles. Still run the main scene once to tune feel.
 
-Next step: Stage B — wave slice.
+Stage B (wave slice) is implemented:
+- `WaveDirector` (`world/wave_director.gd`) runs waves of 3 / 5 / 7 enemies on a 450–700 px ring around the player (clamped to ±1400, 2 s intermission), then spawns the boss; player death = game over, boss death = victory, and the tree pauses 0.8 s after either end.
+- Placeholder `Boss` (`entities/enemy/boss.gd`) chases → winds up → charges → recovers, telegraphing via outline/scale.
+- Player HP is 5 and now emits `health_changed` / `died` instead of respawning.
+- `Enemy` gained `died`, `health_changed`, `knockback_scale`, `face_target` and the `_get_desired_velocity()` hook.
+- Code-built HUD (`ui/hud.gd`) with HP pips, wave counter, boss bar and win/lose overlay; `R` restarts.
+- Verified with a temporary headless Godot 4.7.2 harness: waves 3/5/7 spawn and advance, boss stats/state machine (windup → 600 px/s charge → recover), victory, game over, pause and `R` restart; the real scene also ran clean headless. Still run the main scene once to tune feel.
+
+Next step: Stage C — combo, then Stage D — bullet time.
 
 ## Finalized plan — dash combat (2026-11-19)
 
@@ -71,16 +79,20 @@ Stage A files: `entities/player/player.gd`, `project.godot`, `audio/sfx.gd` (no 
 
 Acceptance (verified with a temporary headless Godot 4.7.2 harness; game feel still needs a manual run): [x] charge preview grows and movement slows; [x] release dashes; [x] each enemy takes damage once per dash; [x] walls stop the dash; [x] i-frames block contact damage; [x] tap gives a min dash; [x] no projectile spawns; [x] no script errors.
 
-### Stage B — wave slice (next)
+### Stage B — wave slice — ✅ completed (2026-11-19)
 
-- 3 / 5 / 7 enemies per wave, spawned at once on a 450–700 px ring around the player, clamped inside the arena (±1400); 2 s intermission.
-- Player HP 5; death = game over; clearing wave 3 spawns the boss; boss death = win.
-- Placeholder boss: radius 48, HP 20, contact damage 2, knockback scale ~0.35×.
-- Boss behaviour: `CHASE` (90 px/s) → `WINDUP` (0.45 s) → `CHARGE` (~600 px/s, locked direction, 0.4 s, ends early on wall) → `RECOVER` (0.7 s), every ~2.5 s when within ~500 px. Telegraph via outline/scale, not `body.color`.
-- `R` restarts (`reload_current_scene()` after setting `paused = false`).
-- HUD: HP pips, `Wave n/3`, boss HP bar, win/lose overlay (`process_mode = ALWAYS`).
-- Enemy additions: `died` + `health_changed` signals, `&"enemies"` group, knockback resistance, `_get_desired_velocity()` hook; `boss.gd extends Enemy` overrides only that hook.
-- Wiring via groups (`&"player"`, `&"director"`); HUD last in the scene.
+- [x] 3 / 5 / 7 enemies per wave, spawned at once on a 450–700 px ring around the player, clamped inside the arena (±1400); 2 s intermission.
+- [x] Player HP 5; death = game over; clearing wave 3 spawns the boss; boss death = win.
+- [x] Placeholder boss: radius 48, HP 20, contact damage 2, knockback scale 0.35×.
+- [x] Boss behaviour: `CHASE` (90 px/s) → `WINDUP` (0.45 s) → `CHARGE` (~600 px/s, locked direction, 0.4 s, ends early on wall) → `RECOVER` (0.7 s), every ~2.5 s when within ~500 px. Telegraphed via outline/scale, not `body.color`.
+- [x] `R` restarts (`reload_current_scene()` after setting `paused = false`).
+- [x] HUD: HP pips, `Wave n/3`, boss HP bar, win/lose overlay (`process_mode = ALWAYS`).
+- [x] Enemy additions: `died` + `health_changed` signals, `&"enemies"` group (already present), knockback resistance, `_get_desired_velocity()` hook; `boss.gd extends Enemy` overrides only that hook for behaviour.
+- [x] Wiring via groups (`&"player"`, `&"director"`); HUD last in the scene. `EnemySpawner` removed.
+
+Stage B files: `entities/enemy/enemy.gd`, `entities/enemy/boss.gd`, `entities/player/player.gd`, `world/wave_director.gd`, `ui/hud.gd`, `world/testing_arena.tscn`, `project.godot` (`restart` action).
+
+Acceptance (verified with a temporary headless Godot 4.7.2 harness, then removed; game feel still needs a manual run): [x] waves 1–3 spawn 3/5/7 enemies and advance after 2 s; [x] spawns stay on the ring/clamped; [x] boss spawns after wave 3 with the planned stats; [x] boss windup/charge/recover runs and charges at 600 px/s; [x] boss death = victory overlay + pause; [x] player death = game over overlay + pause; [x] `R` reloads the scene at wave 1; [x] no script errors in the main scene.
 
 ### Stage C — combo
 
@@ -140,7 +152,7 @@ Original touch points (implemented):
 ## Later phases
 
 1. ✅ Dash core — charge/release dash is the main attack; gun removed for now.
-2. Wave slice — 3 waves + placeholder boss (chaser + charge) + HUD + game over/restart.
+2. ✅ Wave slice — 3 waves + placeholder boss (chaser + charge) + HUD + game over/restart.
 3. Combo + bullet time — combo scaling, then world-slowing bullet time.
 4. Enemy/boss pools; upgrade-only inheritance — stats/unlocks persist across runs; no persistent `Player` node.
 5. Polish — better SFX, screen shake/particles; optional authored arena-template pool.
@@ -153,5 +165,6 @@ Original touch points (implemented):
 ## Handoff
 
 - [x] Stage A implemented with Godot 4.x GDScript and verified headless; play the main scene once to tune feel.
+- [x] Stage B implemented and verified headless (waves 3/5/7 → boss → win/lose, HUD, R restart). Play it once to tune enemy/boss numbers.
 - Keep `.gd.uid` sidecars; ask the user to make UID-sensitive changes in the editor.
-- Next: Stage B (wave slice), then combo/bullet time.
+- Next: Stage C (combo), then Stage D (bullet time).
