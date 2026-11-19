@@ -1,30 +1,66 @@
 class_name Player
 extends Polygon
 
-const ProjectileScript = preload("res://entities/projectile/projectile.gd")
 const SfxScript = preload("res://audio/sfx.gd")
+
+const HIT_FLASH_TIME: float = 0.12
+const CHARGE_PREVIEW_COLOR: Color = Color(0.55, 1.0, 0.75)
+
+enum DashState {
+	READY,
+	CHARGING,
+	DASHING,
+}
 
 @export var speed: float = 300.0
 @export var camera_bounds_half_size: Vector2 = Vector2(1536.0, 1536.0)
-@export var fire_cooldown: float = 0.12
-@export var muzzle_offset: float = 30.0
 @export var max_health: int = 3
 @export var damage_cooldown: float = 0.7
 
-const HIT_FLASH_TIME: float = 0.12
+@export_group("Dash")
+@export var dash_charge_time: float = 1.0
+@export var dash_min_distance: float = 150.0
+@export var dash_max_distance: float = 520.0
+@export var dash_min_speed: float = 1200.0
+@export var dash_max_speed: float = 1900.0
+@export var dash_min_damage: int = 2
+@export var dash_max_damage: int = 3
+@export var dash_cooldown: float = 0.25
+@export var dash_charge_move_scale: float = 0.35
+@export var dash_invulnerability_after: float = 0.05
+
+const DASH_HIT_RADIUS_BONUS: float = 4.0
 
 var camera: Camera2D = Camera2D.new()
-var fire_timer: float = 0.0
-var fire_audio: AudioStreamPlayer
 var health: int = 3
+var charge_audio: AudioStreamPlayer
+var dash_audio: AudioStreamPlayer
+
 var _base_color: Color = Color.WHITE
+var _base_outline_width: float = 1.0
+var _base_outline_color: Color = Color.WHITE
 var _invulnerability_timer: float = 0.0
 var _flash_timer: float = 0.0
+
+var _dash_state: int = DashState.READY
+var _charge_timer: float = 0.0
+var _cooldown_timer: float = 0.0
+var _dash_direction: Vector2 = Vector2.RIGHT
+var _dash_speed: float = 0.0
+var _dash_damage: int = 1
+var _dash_time_left: float = 0.0
+var _dash_hit_ids: Dictionary = {}
+var _dash_exceptions: Array[Node] = []
+var _dash_shape: CircleShape2D
+var _dash_query: PhysicsShapeQueryParameters2D
+var _charge_preview: Line2D
+
 
 func _ready() -> void:
 	add_to_group(&"player")
 
-	# Projectiles scan layer 1 (world) only; keep the player out of that layer.
+	# Projectiles and dash queries scan layer 1 (world) only; keep the player
+	# out of that layer.
 	collision_layer = 2
 
 	health = max_health
@@ -36,12 +72,34 @@ func _ready() -> void:
 	add_child(camera)
 	camera.make_current()
 	_update_camera_limits()
-	
+
 	super._ready()
 
-	fire_audio = AudioStreamPlayer.new()
-	fire_audio.stream = SfxScript.make_tone(1100.0, 500.0, 0.08, 12000.0)
-	add_child(fire_audio)
+	_base_outline_width = outline.width
+	_base_outline_color = outline.default_color
+
+	_charge_preview = Line2D.new()
+	_charge_preview.points = PackedVector2Array([Vector2(radius + 4.0, 0.0), Vector2(radius + 4.0, 0.0)])
+	_charge_preview.width = 2.0
+	_charge_preview.default_color = CHARGE_PREVIEW_COLOR
+	_charge_preview.visible = false
+	add_child(_charge_preview)
+
+	_dash_shape = CircleShape2D.new()
+	_dash_shape.radius = radius + DASH_HIT_RADIUS_BONUS
+	_dash_query = PhysicsShapeQueryParameters2D.new()
+	_dash_query.shape = _dash_shape
+	_dash_query.collision_mask = 1
+	_dash_query.collide_with_areas = false
+	_dash_query.collide_with_bodies = true
+
+	charge_audio = AudioStreamPlayer.new()
+	charge_audio.stream = SfxScript.make_tone(220.0, 440.0, 1.5, 7000.0)
+	add_child(charge_audio)
+
+	dash_audio = AudioStreamPlayer.new()
+	dash_audio.stream = SfxScript.make_noise(0.15, 14000.0)
+	add_child(dash_audio)
 
 
 func _update_camera_limits() -> void:
@@ -56,36 +114,178 @@ func _update_camera_limits() -> void:
 
 func _physics_process(delta: float) -> void:
 	_invulnerability_timer = maxf(_invulnerability_timer - delta, 0.0)
+	_cooldown_timer = maxf(_cooldown_timer - delta, 0.0)
 	if _flash_timer > 0.0:
 		_flash_timer = maxf(_flash_timer - delta, 0.0)
 		if _flash_timer <= 0.0 and body != null:
 			body.color = _base_color
 
-	# Rotate to face mouse
+	# Rotate to face mouse. Aim stays free while charging.
 	look_at(get_global_mouse_position())
 
-	# Movement
+	if _dash_state == DashState.DASHING:
+		_update_dash(delta)
+		return
+
 	var move_input: Vector2 = Input.get_vector(&"move_left", &"move_right", &"move_up", &"move_down")
+
+	if _dash_state == DashState.CHARGING:
+		velocity = move_input * speed * dash_charge_move_scale
+		move_and_slide()
+		_update_charge(delta)
+		return
+
 	velocity = move_input * speed
 	move_and_slide()
 
-	fire_timer = maxf(fire_timer - delta, 0.0)
-	if Input.is_action_pressed(&"fire") and fire_timer <= 0.0:
-		_fire()
-		fire_timer = fire_cooldown
+	if _cooldown_timer <= 0.0 and Input.is_action_just_pressed(&"dash"):
+		_start_charge()
 
 
-func _fire() -> void:
-	var direction: Vector2 = get_global_mouse_position() - global_position
-	if direction.length_squared() <= 0.0:
+func _charge_ratio() -> float:
+	return clampf(_charge_timer / maxf(dash_charge_time, 0.001), 0.0, 1.0)
+
+
+func _start_charge() -> void:
+	_dash_state = DashState.CHARGING
+	_charge_timer = 0.0
+	_charge_preview.visible = true
+	_update_charge_visuals()
+	if charge_audio != null:
+		charge_audio.pitch_scale = 0.7
+		charge_audio.play()
+
+
+func _update_charge(delta: float) -> void:
+	_charge_timer = minf(_charge_timer + delta, dash_charge_time)
+	_update_charge_visuals()
+
+	if charge_audio != null:
+		charge_audio.pitch_scale = lerpf(0.7, 1.9, _charge_ratio())
+
+	if Input.is_action_just_released(&"dash") or not Input.is_action_pressed(&"dash"):
+		_start_dash()
+
+
+func _update_charge_visuals() -> void:
+	var ratio: float = _charge_ratio()
+
+	var distance: float = lerpf(dash_min_distance, dash_max_distance, ratio)
+	_charge_preview.set_point_position(1, Vector2(distance, 0.0))
+	_charge_preview.default_color = Color(
+		CHARGE_PREVIEW_COLOR.r,
+		CHARGE_PREVIEW_COLOR.g,
+		CHARGE_PREVIEW_COLOR.b,
+		lerpf(0.35, 0.85, ratio)
+	)
+
+	if outline != null:
+		outline.width = _base_outline_width + 4.0 * ratio
+		outline.default_color = _base_outline_color.lerp(Color.WHITE, ratio)
+
+
+func _reset_charge_visuals() -> void:
+	if _charge_preview != null:
+		_charge_preview.visible = false
+	if outline != null:
+		outline.width = _base_outline_width
+		outline.default_color = _base_outline_color
+
+
+func _start_dash() -> void:
+	var ratio: float = _charge_ratio()
+
+	var distance: float = lerpf(dash_min_distance, dash_max_distance, ratio)
+	_dash_speed = lerpf(dash_min_speed, dash_max_speed, ratio)
+	_dash_damage = roundi(lerpf(float(dash_min_damage), float(dash_max_damage), ratio))
+
+	var to_mouse: Vector2 = get_global_mouse_position() - global_position
+	if to_mouse.length_squared() > 0.0001:
+		_dash_direction = to_mouse.normalized()
+	else:
+		_dash_direction = Vector2.RIGHT.rotated(rotation)
+
+	_dash_time_left = maxf(distance / _dash_speed, 0.001)
+	_dash_state = DashState.DASHING
+	_dash_hit_ids.clear()
+
+	# Enemies share layer 1 with the walls. Ignore them physically during the
+	# dash so the player passes through and damages them instead of stopping.
+	_dash_exceptions.clear()
+	for enemy: Node in get_tree().get_nodes_in_group(&"enemies"):
+		if enemy is PhysicsBody2D:
+			add_collision_exception_with(enemy as PhysicsBody2D)
+			_dash_exceptions.append(enemy)
+
+	_invulnerability_timer = maxf(_invulnerability_timer, _dash_time_left + dash_invulnerability_after)
+
+	_reset_charge_visuals()
+	if charge_audio != null:
+		charge_audio.stop()
+	if dash_audio != null:
+		dash_audio.stop()
+		dash_audio.play()
+
+
+func _update_dash(delta: float) -> void:
+	velocity = _dash_direction * _dash_speed
+	move_and_slide()
+	_damage_enemies_in_dash()
+
+	# Enemies have collision exceptions during the dash, so any slide hit is a
+	# wall: end the dash early on contact.
+	if get_slide_collision_count() > 0:
+		_end_dash()
 		return
-	direction = direction.normalized()
-	var origin: Vector2 = global_position + direction * muzzle_offset
-	var projectile = ProjectileScript.new()
-	get_tree().current_scene.add_child(projectile)
-	projectile.launch(origin, direction)
-	fire_audio.stop()
-	fire_audio.play()
+
+	_dash_time_left -= delta
+	if _dash_time_left <= 0.0:
+		_end_dash()
+
+
+func _damage_enemies_in_dash() -> void:
+	if _dash_query == null:
+		return
+	_dash_query.transform = Transform2D(0.0, global_position)
+
+	var hits: Array[Dictionary] = get_world_2d().direct_space_state.intersect_shape(_dash_query, 16)
+	for hit in hits:
+		var collider: Variant = hit.get("collider")
+		if not (collider is Enemy):
+			continue
+		var collider_node: Enemy = collider as Enemy
+		if not collider_node.has_method(&"take_damage"):
+			continue
+		var instance_id: int = collider_node.get_instance_id()
+		if _dash_hit_ids.has(instance_id):
+			continue
+		_dash_hit_ids[instance_id] = true
+		collider_node.call(&"take_damage", _dash_damage, _dash_direction)
+
+
+func _end_dash() -> void:
+	_release_dash_exceptions()
+	_dash_state = DashState.READY
+	_cooldown_timer = dash_cooldown
+	velocity = Vector2.ZERO
+
+
+func _cancel_dash() -> void:
+	_release_dash_exceptions()
+	_dash_state = DashState.READY
+	_charge_timer = 0.0
+	_cooldown_timer = 0.0
+	velocity = Vector2.ZERO
+	_reset_charge_visuals()
+	if charge_audio != null:
+		charge_audio.stop()
+
+
+func _release_dash_exceptions() -> void:
+	for enemy in _dash_exceptions:
+		if is_instance_valid(enemy) and enemy is PhysicsBody2D:
+			remove_collision_exception_with(enemy)
+	_dash_exceptions.clear()
 
 
 func take_damage(amount: int, from_position: Vector2) -> void:
@@ -103,6 +303,7 @@ func take_damage(amount: int, from_position: Vector2) -> void:
 
 
 func _respawn() -> void:
+	_cancel_dash()
 	health = max_health
 	global_position = Vector2.ZERO
 	_invulnerability_timer = damage_cooldown

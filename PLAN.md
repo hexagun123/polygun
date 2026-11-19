@@ -6,7 +6,7 @@
 - Repo instructions (`AGENTS.md`): concise responses; change mode uses sub-agents except for small fixes; Godot 4.x GDScript only; ask the user to make risky `uid://` changes in the Godot editor; verify broken paths and type errors after features.
 - No build/test/lint/CI scripts. Verification means opening the project in Godot and running the main scene.
 - Main scene: `uid://cjmff0wlmncdk` = `world/testing_arena.tscn`. Renderer is `gl_compatibility`. No autoloads; `autoload/` and `ui/` are empty placeholders.
-- Input actions exist in `project.godot` (`move_left/right/up/down`, `fire` = LMB). The `fire` action becomes `dash` in the next milestone.
+- Input actions exist in `project.godot` (`move_left/right/up/down`, `dash` = LMB).
 - Scripts have `.gd.uid` sidecars. Preserve UIDs; have the user change UID-sensitive data in the editor.
 
 ## Progress — 2026-11-19
@@ -21,7 +21,15 @@ Shooting milestone is implemented:
 - Generated audio moved to `audio/sfx.gd` (`Sfx.make_tone`, `Sfx.make_noise`).
 - Verified with headless Godot 4.7.2: project runs clean, and a smoke harness confirmed projectile damage, enemy death + burst, and player invulnerability. Still run the main scene once to tune feel.
 
-Next step: dash core (see finalized plan below), then the wave slice.
+Dash core (Stage A) is implemented:
+
+- LMB is now `dash`: hold to charge (movement ×0.35, growing preview + outline), release to dash toward the cursor; distance/speed/damage scale with charge, 0.25 s cooldown, i-frames for the dash + 0.05 s.
+- The dash passes through enemies (temporary collision exceptions) and damages each one once per dash via a circle shape query; walls end the dash early.
+- Generated charge tone + release whoosh; tap still gives the minimum dash.
+- Gun code removed from `player.gd`; `projectile.gd` kept on disk unreferenced. `Enemy` now joins `&"enemies"` for the dash collision exceptions.
+- Verified with a headless Godot 4.7.2 smoke harness: damage once per dash, pass-through, wall stop, i-frames, charge slow/preview, no projectiles. Still run the main scene once to tune feel.
+
+Next step: Stage B — wave slice.
 
 ## Finalized plan — dash combat (2026-11-19)
 
@@ -32,7 +40,7 @@ Decisions:
 - Bullet time slows the world but not the player.
 - Dash core ships before the wave slice; combo and bullet time come after.
 
-### Stage A — dash core (next milestone)
+### Stage A — dash core (implemented)
 
 Charge → dash:
 

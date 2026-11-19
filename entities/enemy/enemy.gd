@@ -31,6 +31,7 @@ func _ready() -> void:
 	# Walls, other enemies and projectiles live on layer 1.
 	collision_layer = 1
 	collision_mask = 1
+	add_to_group(&"enemies")
 
 	health = max_health
 	super._ready()
