@@ -15,8 +15,8 @@ Snapshot of what the game actually does today, written as planning input. Comple
 2. `WaveDirector` starts level 1, wave 1: 4 red pentagons (chasers) spawn 300–560 px around the player and chase.
 3. Aim with the mouse. **Hold LMB to wind** — a crosshair shows where the dash will land, turning gold when that landing would execute and red when it would end inside an enemy. Release to dash toward the cursor. Movement is never slowed while winding.
 4. The dash lasts 0.1 s. Wind maps distance 0→520 px through a smooth S-curve, so distance sets speed and damage (1–4). It passes through enemies, resolves hits along the travelled segment, and stops early on walls. I-frames cover the dash + 0.05 s.
-5. A dash that crosses an enemy and ends within 2 × its radius **executes** it: ×3 damage and +1 combo. Ending the dash deep inside the enemy costs the player 1 HP instead. The combo breaks on any dash that executes nothing, after 1 s without an execute, or when the player takes a hit.
-6. Every combo point slows the world logarithmically (`1 - 0.15·ln(1+combo)`) while the player keeps acting in real time. A hit taken **breaks the combo instead of dealing damage**, and the break also destroys hostile projectiles.
+5. A dash that crosses an enemy and ends within 2.5 × its radius **executes** it: ×3 damage and +1 combo. Ending the dash deep inside the enemy costs the player 1 HP instead. The combo breaks on any dash that executes nothing, after 1.5 s without an execute, or when the player takes a hit. **Landing assist** nudges the dash distance into the execute band when the landing is within 50 px of it and the path crosses the body.
+6. Every combo point slows the world: the first execute snaps it to 0.80, then `0.80 - 0.10·ln(combo)` — while the player keeps acting in real time. A hit taken **breaks the combo instead of dealing damage**, and the break also destroys hostile projectiles.
 7. Bosses execute at 2 × radius, and a boss execute resets the combo — unless the hit lands inside the tighter perfect band (1.1 × radius) or kills it.
 8. Enemies flash white, get knocked back, and burst into shards when killed. Hits freeze time briefly, shake the camera, flash numbers, leave dash ghosts, and punch the zoom.
 9. Wave 2 adds 2 spitters; wave 3 adds a lunger and a tank. Clearing wave 3 spawns the boss.
@@ -43,7 +43,7 @@ No pause menu or controller/touch input.
 
 ### `entities/executable/executable.gd` — `Executable` (extends `Polygon`)
 - Shared contract for anything the dash can hit: `max_health`, `health`, `hit_flash_time`, `take_damage(amount, direction)`, `died(executable)` / `health_changed` signals, `_tick_flash(delta)`.
-- Execution data (exported): `execute_ratio` 2.0, `perfect_ratio` 0 (disabled), `body_ratio` 0.6, `execute_damage_scale` 3, `execute_breaks_combo` false, `execute_floor` 0, `proximity_execution` false.
+- Execution data (exported): `execute_ratio` 2.5, `perfect_ratio` 0 (disabled), `body_ratio` 0.6, `execute_damage_scale` 3, `execute_breaks_combo` false, `execute_floor` 0, `proximity_execution` false.
 - `execute_range()` = `max(radius × execute_ratio, execute_floor)`; `body_range()` = `radius × body_ratio`.
 - Hooks: `_on_damaged(direction)` and `_on_survived_hit()`.
 
@@ -55,10 +55,11 @@ No pause menu or controller/touch input.
   - Distance = `dash_max_distance (520) × (w - strength·sin(2πw)/2π)`; `wind_curve_strength` 1.0 (0 = linear). Speed = distance / 0.1. Damage = `round(lerp(1, 4, curve))`.
   - Endpoint crosshair (`AimMarker`, `top_level`) sits where the dash will land: green normally, gold when the landing executes, red when it would end inside an enemy. Outline widens/brightens with wind; rising tone while holding.
   - Moves with `move_and_slide`, ends early on wall contact. Enemies get temporary collision exceptions so the player passes through them.
-  - Hits are resolved geometrically as the dash travels, then **classified once at dash end**: body (`d ≤ 0.6·radius`, bypasses i-frames), execute (`d ≤ 2·radius` after crossing the body), or a normal hit. Projectiles use proximity instead of the endpoint.
+  - Hits are resolved geometrically as the dash travels, then **classified once at dash end**: body (`d ≤ 0.6·radius`, bypasses i-frames), execute (`d ≤ 2.5·radius` after crossing the body), or a normal hit. Projectiles use proximity instead of the endpoint.
+  - Landing assist: on release, if the path crosses an enemy and the raw landing is within 50 px of the ideal `1.5·radius` gap, the distance is nudged into the band. The crosshair uses the assisted distance, so it never lies.
   - I-frames for dash duration + 0.05 s; 0.12 s cooldown; momentum carry 18 % decaying at 2800 px/s².
   - Presses/releases during dash/cooldown are buffered 0.2 s instead of dropped.
-- Combo → bullet time and shield: `Engine.time_scale = 1 - 0.15·ln(1+combo)` via `TimeControl`; every player timer and movement is multiplied by `1 / bullet_time_factor`, so only the world slows. A hit taken while combo > 0 is absorbed and clears the chain.
+- Combo → bullet time and shield: the first execute snaps `Engine.time_scale` to 0.80, then `0.80 - 0.10·ln(combo)` via `TimeControl`; every player timer and movement is multiplied by `1 / bullet_time_factor`, so only the world slows. The combo window is 1.5 s. A hit taken while combo > 0 is absorbed and clears the chain.
 - Feel: hit-stop via `TimeControl.freeze` (hit 0.035 s, kill 0.060 s, hurt 0.050 s, halved in bullet time), trauma-based camera shake (10 px), zoom punch to 0.96, dash ghosts every 40 px (cap 8), floating damage numbers, hurt knockback + red flash signal.
 - Camera2D: smoothing 10 → 55 while dashing, movement look-ahead (45 px walking, 90 px cap), limits ±1536.
 - HP 5, 0.7 s damage i-frames, red flash 0.12 s. `take_damage` returns true only when the hit landed (projectiles use this to decide whether to fizzle).
@@ -84,7 +85,7 @@ No pause menu or controller/touch input.
 
 ### `entities/enemy/boss.gd` — `Boss` (extends `Enemy`)
 - Hexagon, radius 48, magenta, outline 3; HP 36, contact 2, speed 90, `knockback_scale` 0.35.
-- Execution: `execute_ratio` 2.0, `perfect_ratio` 1.1, `body_ratio` 0.6, `execute_breaks_combo` true.
+- Execution: `execute_ratio` 2.5, `perfect_ratio` 1.1, `body_ratio` 0.6, `execute_breaks_combo` true.
 - Attacks: `CHASE` → `WINDUP` (0.45 s) → `CHARGE` (600 px/s, 0.4 s, ends on wall) → `RECOVER` (0.7 s), 2.5 s cooldown, triggers within 500 px.
 - Volley every 6 s: 0.5 s telegraph → 6-projectile fan at 240 px/s. **Phase 2 at ≤ 50 % HP**: the volley becomes a 10-projectile ring and the charge cooldown drops to 1.8 s.
 
@@ -141,8 +142,8 @@ TestingArena (Node2D)
 | Arena | 3072×3072, 64 px grid, limits ±1536 |
 | Player | radius 24, speed 300, HP 5, damage i-frames 0.7 s, physics 120 Hz |
 | Dash | wind 0→1 over 0.9 s, distance `520·(w - sin(2πw)/2π)` (0–520), 0.1 s → speed 0–5200, damage 1–4, cooldown 0.12 s, i-frames dash+0.05 s, buffer 0.2 s |
-| Bands | body 0.6·s, execute 2.0·s (enemy 12–40 px), boss perfect 1.1·s (29–53 px), projectile floor 40 px |
-| Combo | 1 s window, execute ×3, boss execute resets, bullet time `1 - 0.15·ln(1+combo)` |
+| Bands | body 0.6·s, execute 2.5·s (enemy 12–50 px), boss perfect 1.1·s (29–53 px), projectile floor 40 px, assist ±50 px |
+| Combo | 1.5 s window, execute ×3, boss execute resets, bullet time 0.80 then `0.80 - 0.10·ln(combo)` |
 | Feel | momentum 18 % (decay 2800), camera lead 45/90 px, hit-stop 0.035/0.060/0.050 s, shake 10 px, zoom 0.96 |
 | Enemy | radius 20, speed 140, HP 3, contact 1, knockback 260/900 |
 | Spitter | radius 18, speed 120, HP 3, band 320–420, telegraph 0.35 s, fire 1.6 s, shot 240 px/s |

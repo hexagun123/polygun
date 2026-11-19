@@ -61,21 +61,23 @@ Resolve each object **once per dash**, geometrically (no per-frame sampling, no 
 2. **End distance** — classify by `d` = distance from the dash endpoint to the object centre.
 
 ```
-ENEMY  (s = 20)          body_ratio 0.6, execute_ratio 2.0
+ENEMY  (s = 20)          body_ratio 0.6, execute_ratio 2.5
   d ≤ 0.6·s             BODY        self-damage (combo shield absorbs first)
-  0.6·s < d ≤ 2.0·s     EXECUTE     combo +1        (12–40 px: 28 px window)
-  d > 2.0·s             normal hit
+  0.6·s < d ≤ 2.5·s     EXECUTE     combo +1        (12–50 px: 38 px window)
+  d > 2.5·s             normal hit
 
-BOSS   (s = 48)          body_ratio 0.6, execute_ratio 2.0, perfect_ratio 1.1
+BOSS   (s = 48)          body_ratio 0.6, execute_ratio 2.5, perfect_ratio 1.1
   d ≤ 0.6·s             BODY
   0.6·s < d ≤ 1.1·s     PERFECT     big damage, combo KEPT   (29–53 px)
-  1.1·s < d ≤ 2.0·s     EXECUTE     big damage, combo RESETS
-  d > 2.0·s             normal hit
+  1.1·s < d ≤ 2.5·s     EXECUTE     big damage, combo RESETS
+  d > 2.5·s             normal hit
 
 PROJECTILE  (s ≈ 6)      proximity_execution, execute_floor 40
   path within 40 px     EXECUTE     combo +1
   any normal hit        destroys it, no combo
 ```
+
+**Landing assist** (the thing that makes chains possible): on release, if the dash path already crosses an enemy and the raw landing is within 50 px of that enemy's execute band, the distance is nudged so the landing sits at `1.5·s` past its centre. Aim and rough range still decide the hit; a ~20 ms slip in hold length no longer kills the chain. The crosshair uses the assisted distance, so it never lies.
 
 - Any object the dash passes through but does not execute takes a **normal hit** (damage from dash speed).
 - **Self-damage** only when the dash *ends* with the player centre inside the object (`d ≤ s`). Passing through mid-dash is free.
@@ -85,18 +87,20 @@ PROJECTILE  (s ≈ 6)      proximity_execution, execute_floor 40
 
 - **+1 per execute** (enemy, boss perfect, projectile).
 - **Any dash that doesn't execute breaks the combo immediately** (whiff = break).
-- **1 s without an execute** breaks it.
+- **1.5 s without an execute** breaks it.
 - **Boss execute resets the combo** unless it is a perfect execute or the boss dies.
 - **Taking a hit clears the combo and deals zero HP damage**; the clear also **destroys projectiles and cancels attacks** (only those).
 - Normal hits never feed the meter.
 
-Bullet time is derived from combo, not triggered:
+Bullet time is derived from combo, not triggered, in two tiers — the first execute pops to a clearly felt slow, then each further point adds a smaller logarithmic step:
 
 ```
-time_scale = 1 - 0.15 · ln(1 + combo)     # 1 → 0.90, 5 → 0.73, 20 → 0.55
+time_scale = 1.0                              combo 0
+           = 0.80                             combo 1
+           = 0.80 - 0.10 · ln(combo)          combo ≥ 2   # 3 → 0.69, 5 → 0.64, 10 → 0.57
 ```
 
-Logarithmic, no floor, player unaffected. Losing the combo snaps back to 1.0.
+Player unaffected. Losing the combo snaps back to 1.0.
 
 ### Data-driven
 
@@ -176,10 +180,13 @@ Acceptance: verified headless — time scale dipped to 0.04 on a kill then resto
 
 - [x] Remove `dash_min_distance`; distance = `dash_max_distance · (w - sin(2πw)/(2π))` with `wind_curve_strength` export.
 - [x] Damage scales with the curve: `round(1 + 3·f(w))`.
-- [x] `body_ratio` 0.6 for enemy and boss; `execute_ratio` 2.0; boss `perfect_ratio` stays 1.1.
-- [x] Aim marker, `_start_dash` and damage all read the same curve helper.
+- [x] `body_ratio` 0.6 for enemy and boss; `execute_ratio` 2.5; boss `perfect_ratio` stays 1.1.
+- [x] Landing assist: nudge the landing into the band when it is within 50 px and the path crosses the body.
+- [x] Combo window 1.0 → 1.5 s.
+- [x] Two-tier bullet time: 0.80 at combo 1, then `0.80 - 0.10·ln(combo)`.
+- [x] Aim marker, `_start_dash` and damage all read the same curve + assist helper.
 
-Acceptance: verified headless — 0/260/520 px at zero/half/full wind, a 25 px landing executes, marker agrees with the outcome.
+Acceptance: verified headless — 0/260/520 px at zero/half/full wind, a 59 px near-miss is assisted to a 30 px execute, a 25 px landing executes, first execute snaps the world to 0.80, combo 3 reaches 0.69, and the marker agrees with the outcome.
 
 ### Section — Level one (done)
 
@@ -226,11 +233,12 @@ Acceptance: verified headless — spitters fire executable projectiles, a dash e
 - **Dash model B**: hold = wind, release = dash; movement is never slowed (revised after playtesting — press-to-dash felt wrong).
 - **Fixed 0.1 s dash duration**; wind changes distance, so distance sets speed and damage.
 - **Execution is positional**: cross the object, then end within `ratio × radius`.
-- **Regular enemies are executables**; the boss is a harder, more forgiving band (2·s) with a 1.1·s perfect band that keeps the combo.
+- **Regular enemies are executables**; the boss is a harder, more forgiving band (2.5·s) with a 1.1·s perfect band that keeps the combo.
+- **Landing assist** nudges the landing into the execute band when the path already crosses the enemy, so hold precision stops gating chains.
 - **Bosses are combo batteries**: their projectiles/spawns are executables; executing the boss body resets the combo.
 - **Combo = execution chain only**; normal hits give damage but no meter.
-- **Combo expiry**: any non-executing dash, 1 s without an execute, or taking a hit (which absorbs the damage instead).
-- **Bullet time is combo-derived**, logarithmic (`1 - 0.15·ln(1+combo)`), player unaffected.
+- **Combo expiry**: any non-executing dash, 1.5 s without an execute, or taking a hit (which absorbs the damage instead).
+- **Bullet time is combo-derived**, two-tier: 0.80 at combo 1, then `0.80 - 0.10·ln(combo)`; player unaffected.
 - **Projectiles**: proximity execute with a floor; normal hits destroy them for no combo.
 - **Everything ratio-based and exported**, ready for future difficulty modes.
 - A second auto-fire damage source is planned, and it must not build combo.
