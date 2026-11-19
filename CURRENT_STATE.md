@@ -52,6 +52,8 @@ No pause menu or controller/touch input.
   - Hits are resolved geometrically as the dash travels, then **classified once when the dash ends**: ending inside the body (`d ≤ body_ratio·radius`) costs the player 1 HP (bypassing dash i-frames); crossing the body and ending within `execute_ratio·radius` executes for ×3 damage; everything else takes a normal hit.
   - Execution builds the combo (`+1`), which breaks on a non-executing dash, after 1 s without an execute, or when the player takes a hit. Emits `combo_changed(combo)`.
   - Combo = bullet time and shield: `Engine.time_scale = 1 - 0.15·ln(1+combo)` through `TimeControl`, while every player timer and its movement are compensated by `1 / bullet_time_factor`, so only the world slows. Any hit taken while combo > 0 is absorbed by the chain (no HP loss) and clears hostile projectiles via the `&"hostile_projectiles"` group hook.
+  - Feel: hit-stop through `TimeControl.freeze` (hit 0.035 s, kill 0.060 s, hurt 0.050 s, halved in bullet time), trauma-based camera shake (`camera.offset`, trauma², 10 px max), zoom punch (`camera.zoom` lerped back to exactly 1.0), dash ghosts every 40 px (cap 8), floating damage numbers, and hurt knockback away from `from_position` plus a `hurt` signal for the HUD flash.
+  - Aim and dash direction subtract `camera.offset` (`_aim_point()`) so shake never skews them.
   - I-frames for dash duration + 0.05 s; 0.12 s cooldown after dash ends. Noise whoosh on dash start.
   - Presses made while dashing / cooling down are buffered for 0.2 s instead of being dropped.
   - Dash end keeps 18 % of dash speed as momentum that decays at 2800 px/s², so landing slides instead of stopping dead.
@@ -82,12 +84,20 @@ No pause menu or controller/touch input.
 ### `ui/hud.gd` — `Hud` (CanvasLayer)
 - Built in code; `process_mode = ALWAYS`, `layer = 10`, last in scene.
 - HP pips (per `max_health`), `WAVE n / 3` label, `COMBO n` counter top-right (hidden at zero), boss bar driven by boss `health_changed`.
+- Hurt flash: full-screen red `ColorRect` on a `CanvasLayer` at layer 9 (below the HUD), faded in real time from the player's `hurt` signal.
 - End overlay (`VICTORY` / `GAME OVER` + "Press R to restart"). `R` unpauses and reloads the scene.
 - Binds via groups (`&"player"`, `&"director"`) deferred; seeds initial wave from director state.
 
 ### `entities/fx/time_control.gd` — `TimeControl`
-- Static single writer of `Engine.time_scale`: `bullet_time_factor * hitstop_factor` (`hitstop_factor` reserved for Stage 4).
+- Static single writer of `Engine.time_scale`: `bullet_time_factor * hitstop_factor`.
 - `set_bullet_time`, `set_hitstop`, `reset()`. Static state survives scene reloads, so `reset()` is called by the director's `_begin()` and by the HUD on win/lose and `R` restart.
+- `freeze(tree, seconds)` is real-time (ignores `time_scale`), extends overlapping freezes via a token, and restores the hit-stop factor to 1.0.
+
+### `entities/fx/dash_ghost.gd` — `DashGhost`
+- `Node2D` that draws a copy of the player's polygon at a fixed alpha and fades over 0.18 s in real time. Callers `configure()` then `add_child()`; joined to `&"dash_ghosts"` so the player can cap the count.
+
+### `entities/fx/damage_number.gd` — `DamageNumber`
+- Floating `Label` parented to the current scene (survives the enemy being freed), rises 46 px and fades over 0.5 s in real time.
 
 ### `entities/fx/death_burst.gd` — `DeathBurst`
 - 10 `Line2D` shards flying outward (~320 px/s), decelerating, fading over 0.35 s, then freed.
@@ -122,6 +132,9 @@ TestingArena (Node2D)
 | Player | radius 24, speed 300, HP 5, damage i-frames 0.7 s, physics 120 Hz |
 | Dash | wind 0→1 over 0.9 s (spent on dash), distance 180–420, duration 0.1 s → speed 1800–4200, damage 2–4, cooldown 0.12 s, i-frames dash+0.05 s |
 | Feel | input buffer 0.2 s, momentum carry 18 % (decay 2800), camera look-ahead 45 px walk / 90 px cap, smoothing 10 → 55 |
+| Hit-stop | hit 0.035 s, kill 0.060 s, hurt 0.050 s (halved in bullet time), freeze factor 0.05 |
+| Shake / zoom | trauma² decay 2.2/s, 10 px max offset; zoom punch 0.96, settles to 1.0 |
+| FX | dash ghost every 40 px (cap 8, 0.18 s), damage number 0.5 s / 46 px rise |
 | Enemy | radius 20, speed 140, HP 3, contact 1, knockback 260/900, execute 1.5·s, body 1.0·s |
 | Waves | 3/5/7, ring 450–700, clamp ±1400, clearance 320, intermission 2 s |
 | Boss | hexagon r48, HP 20, contact 2, speed 90, charge 600; windup 0.45, charge 0.4, recover 0.7, cooldown 2.5 s (1.0 initial), trigger 500 px, knockback ×0.35, execute 2.0·s, perfect 1.1·s |
@@ -132,12 +145,10 @@ TestingArena (Node2D)
 ## Not implemented (gaps relevant to the plan)
 
 - No combo damage multiplier (position is the reward instead).
-- No feel pass yet (hit-stop, shake, ghosts, damage numbers, zoom punch, hurt feedback; Stage 4).
+- No feel polish beyond the core effects: no reticle, charge tiers, combo pop, bullet-time tint or audio layering (Stage 8).
 - No rebalance pass (Stage 7), upgrades/inheritance, currency, level/arena pool, or score.
 - No pause menu; `R` only on win/lose overlay.
 - One enemy type + placeholder boss; dash-only attack (`projectile.gd` unreferenced), no hostile projectiles.
-- No screen shake, particles beyond line shards, hit-stop, or damage numbers.
 - No mobile/touch controls despite mobile renderer.
 - No pickups. `Polygon` visuals not rebuildable at runtime.
-- `Player.take_damage` ignores `from_position` (no directional feedback).
 - No tests/CI; verification is manual in-editor (headless smoke harnesses used previously and removed).

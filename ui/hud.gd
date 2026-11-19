@@ -13,6 +13,7 @@ const PIP_EMPTY: Color = Color(0.16, 0.19, 0.24, 0.9)
 const BOSS_BACK: Color = Color(0.22, 0.08, 0.1, 0.9)
 const BOSS_FILL: Color = Color(0.95, 0.25, 0.3)
 const COMBO_FILL: Color = Color(1.0, 0.82, 0.3)
+const HURT_COLOR: Color = Color(1.0, 0.12, 0.12)
 const DIM: Color = Color(0.0, 0.0, 0.0, 0.7)
 
 var _pip_row: HBoxContainer
@@ -24,6 +25,8 @@ var _boss_box: VBoxContainer
 var _boss_fill: ColorRect
 var _end_overlay: Control
 var _end_title: Label
+var _hurt_flash: ColorRect
+var _hurt_alpha: float = 0.0
 
 
 func _ready() -> void:
@@ -35,6 +38,19 @@ func _ready() -> void:
 
 
 func _build() -> void:
+	# Full-screen hurt flash on its own layer, below the HUD itself.
+	var flash_layer := CanvasLayer.new()
+	flash_layer.name = "HurtFlashLayer"
+	flash_layer.layer = 9
+	add_child(flash_layer)
+
+	_hurt_flash = ColorRect.new()
+	_hurt_flash.name = "HurtFlash"
+	_hurt_flash.color = Color(HURT_COLOR.r, HURT_COLOR.g, HURT_COLOR.b, 0.0)
+	_hurt_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hurt_flash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	flash_layer.add_child(_hurt_flash)
+
 	var root := _make_control()
 	root.name = "Root"
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -138,6 +154,7 @@ func _bind_scene() -> void:
 	if player != null:
 		player.health_changed.connect(_on_player_health_changed)
 		player.combo_changed.connect(_on_combo_changed)
+		player.hurt.connect(_on_player_hurt)
 		_rebuild_pips(player.max_health, player.health)
 
 	var director := get_tree().get_first_node_in_group(&"director")
@@ -183,6 +200,19 @@ func _on_wave_changed(wave: int, total: int) -> void:
 
 func _on_combo_changed(value: int) -> void:
 	_combo_label.text = ("COMBO %d" % value) if value > 0 else ""
+
+
+func _on_player_hurt() -> void:
+	_hurt_alpha = 0.35
+
+
+func _process(delta: float) -> void:
+	if _hurt_alpha <= 0.0:
+		return
+	# Real time, so the flash does not linger in bullet time.
+	var dt: float = delta / maxf(TimeControlScript.bullet_time_factor, 0.001)
+	_hurt_alpha = maxf(_hurt_alpha - dt * 2.5, 0.0)
+	_hurt_flash.color = Color(HURT_COLOR.r, HURT_COLOR.g, HURT_COLOR.b, _hurt_alpha)
 
 
 func _on_boss_spawned(boss: Node) -> void:

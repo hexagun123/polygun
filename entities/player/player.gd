@@ -4,9 +4,12 @@ extends Polygon
 signal health_changed(current: int, maximum: int)
 signal died
 signal combo_changed(combo: int)
+signal hurt
 
 const SfxScript = preload("res://audio/sfx.gd")
 const TimeControlScript = preload("res://entities/fx/time_control.gd")
+const DashGhostScript = preload("res://entities/fx/dash_ghost.gd")
+const DamageNumberScript = preload("res://entities/fx/damage_number.gd")
 
 const HIT_FLASH_TIME: float = 0.12
 const WIND_PREVIEW_COLOR: Color = Color(0.55, 1.0, 0.75)
@@ -52,6 +55,19 @@ const DASH_HIT_RADIUS_BONUS: float = 4.0
 ## Seconds an execution chain survives without a new execution.
 const COMBO_WINDOW: float = 1.0
 
+# Feel (Stage 4).
+const HITSTOP_HIT: float = 0.035
+const HITSTOP_KILL: float = 0.060
+const HITSTOP_HURT: float = 0.050
+const SHAKE_MAX_OFFSET: float = 10.0
+const SHAKE_DECAY: float = 2.2
+const ZOOM_PUNCH: float = 0.96
+const GHOST_SPACING: float = 40.0
+const MAX_GHOSTS: int = 8
+const HURT_KNOCKBACK: float = 420.0
+const NORMAL_DAMAGE_COLOR: Color = Color(1.0, 0.95, 0.8)
+const EXECUTE_DAMAGE_COLOR: Color = Color(1.0, 0.8, 0.25)
+
 var camera: Camera2D = Camera2D.new()
 var health: int = 5
 var combo: int = 0
@@ -78,6 +94,10 @@ var _dash_remaining: float = 0.0
 var _dash_crossings: Dictionary = {}
 var _dash_executed: bool = false
 var _combo_timer: float = 0.0
+var _trauma: float = 0.0
+var _zoom_mult: float = 1.0
+var _ghost_travel: float = 0.0
+var _body_points: PackedVector2Array = PackedVector2Array()
 var _dash_buffer: float = 0.0
 ## 1 / Engine.time_scale, so the player keeps acting in real time.
 var _inv_time_scale: float = 1.0
@@ -106,6 +126,7 @@ func _ready() -> void:
 
 	_base_outline_width = outline.width
 	_base_outline_color = outline.default_color
+	_body_points = body.polygon
 
 	_wind_preview = Line2D.new()
 	_wind_preview.points = PackedVector2Array([Vector2(radius + 4.0, 0.0), Vector2(radius + 4.0, 0.0)])
@@ -158,8 +179,9 @@ func _physics_process(delta: float) -> void:
 		if _flash_timer <= 0.0 and body != null:
 			body.color = _base_color
 
-	# Rotate to face mouse. Aim stays free while winding.
-	look_at(get_global_mouse_position())
+	# Rotate to face mouse. Aim stays free while winding. Subtract the shake
+	# offset so a shaking camera never skews aim or the dash direction.
+	look_at(_aim_point())
 
 	if _dash_state == DashState.DASHING:
 		_update_dash(delta, dt)
@@ -244,6 +266,59 @@ func _update_camera(dt: float, motion: Vector2) -> void:
 	var dash_ratio: float = clampf(motion.length() / maxf(speed * 3.0, 1.0), 0.0, 1.0)
 	camera.position_smoothing_speed = lerpf(CAMERA_BASE_SMOOTHING, CAMERA_DASH_SMOOTHING, dash_ratio) * _inv_time_scale
 
+	_update_shake(dt)
+	_update_zoom(dt)
+
+
+## Trauma model: trauma² keeps small hits subtle while big ones still read.
+func _update_shake(dt: float) -> void:
+	_trauma = maxf(_trauma - SHAKE_DECAY * dt, 0.0)
+	var shake: float = _trauma * _trauma
+	if shake <= 0.0001:
+		camera.offset = Vector2.ZERO
+		return
+	camera.offset = Vector2.from_angle(randf() * TAU) * SHAKE_MAX_OFFSET * shake
+
+
+func add_trauma(amount: float) -> void:
+	_trauma = clampf(_trauma + amount, 0.0, 1.0)
+
+
+## Single multiplier recomputed every frame so it always settles to exactly 1.
+func _update_zoom(dt: float) -> void:
+	_zoom_mult = lerpf(_zoom_mult, 1.0, 1.0 - exp(-14.0 * dt))
+	if absf(_zoom_mult - 1.0) < 0.0005:
+		_zoom_mult = 1.0
+	camera.zoom = Vector2.ONE * _zoom_mult
+
+
+func _aim_point() -> Vector2:
+	return get_global_mouse_position() - camera.offset
+
+
+func _freeze(duration: float) -> void:
+	# Hit-stop is an accent; in bullet time the world is already slow.
+	if TimeControlScript.bullet_time_factor < 0.95:
+		duration *= 0.5
+	TimeControlScript.freeze(get_tree(), duration)
+
+
+func _emit_dash_ghosts(distance: float) -> void:
+	_ghost_travel += distance
+	while _ghost_travel >= GHOST_SPACING:
+		_ghost_travel -= GHOST_SPACING
+		if get_tree().get_nodes_in_group(&"dash_ghosts").size() >= MAX_GHOSTS:
+			break
+		var parent: Node = get_parent()
+		if parent == null:
+			break
+		var ghost := DashGhostScript.new()
+		ghost.configure(_body_points, _base_color, rotation)
+		ghost.z_index = -1
+		ghost.add_to_group(&"dash_ghosts")
+		parent.add_child(ghost)
+		ghost.global_position = global_position
+
 
 func _start_dash() -> void:
 	var ratio: float = _wind
@@ -251,7 +326,7 @@ func _start_dash() -> void:
 	_dash_speed = distance / maxf(dash_duration, 0.001)
 	_dash_damage = roundi(lerpf(float(dash_min_damage), float(dash_max_damage), ratio))
 
-	var to_mouse: Vector2 = get_global_mouse_position() - global_position
+	var to_mouse: Vector2 = _aim_point() - global_position
 	if to_mouse.length_squared() > 0.0001:
 		_dash_direction = to_mouse.normalized()
 	else:
@@ -261,6 +336,7 @@ func _start_dash() -> void:
 	_dash_state = DashState.DASHING
 	_dash_crossings.clear()
 	_dash_executed = false
+	_ghost_travel = 0.0
 
 	# The wind is spent on this dash; holding again loads the next one.
 	_wind = 0.0
@@ -294,6 +370,7 @@ func _update_dash(delta: float, dt: float) -> void:
 	velocity = _dash_direction * (step / maxf(delta, 0.0001))
 	move_and_slide()
 	_dash_remaining -= step
+	_emit_dash_ghosts(step)
 
 	# Track how close the travelled segment got to each enemy, so a 4200 px/s
 	# dash cannot tunnel past anything and a wall stop stays exact.
@@ -334,6 +411,8 @@ func _resolve_dash_hits() -> void:
 	var end_pos: Vector2 = global_position
 	var body_source: Vector2 = Vector2.ZERO
 	var body_hit: bool = false
+	var hits: int = 0
+	var kills: int = 0
 
 	for node: Node in get_tree().get_nodes_in_group(&"enemies"):
 		var enemy: Enemy = node as Enemy
@@ -357,19 +436,31 @@ func _resolve_dash_hits() -> void:
 
 		# Execution needs the path to have gone through the body itself.
 		if path_distance <= size and end_distance <= size * enemy.execute_ratio:
-			_execute(enemy, end_distance, size)
+			if _execute(enemy, end_distance, size):
+				kills += 1
+			hits += 1
 		else:
-			enemy.take_damage(_dash_damage, _dash_direction)
+			_deal_damage(enemy, _dash_damage, NORMAL_DAMAGE_COLOR)
+			hits += 1
+			if enemy.health <= 0:
+				kills += 1
+
+	if hits > 0:
+		_freeze(HITSTOP_KILL if kills > 0 else HITSTOP_HIT)
+		add_trauma(0.32 if kills > 0 else 0.18)
+	if kills > 0:
+		_zoom_mult = ZOOM_PUNCH
 
 	if body_hit:
 		_take_body_damage(body_source)
 
 
-func _execute(enemy: Enemy, end_distance: float, size: float) -> void:
+## Applies damage and its visual feedback. Returns true if the hit was lethal.
+func _execute(enemy: Enemy, end_distance: float, size: float) -> bool:
 	var damage: int = _dash_damage * enemy.execute_damage_scale
 	var perfect: bool = enemy.perfect_ratio > 0.0 and end_distance <= size * enemy.perfect_ratio
 
-	enemy.take_damage(damage, _dash_direction)
+	_deal_damage(enemy, damage, EXECUTE_DAMAGE_COLOR)
 	var killed: bool = enemy.health <= 0
 	_dash_executed = true
 
@@ -379,6 +470,24 @@ func _execute(enemy: Enemy, end_distance: float, size: float) -> void:
 		_break_combo()
 	else:
 		_add_combo()
+
+	return killed
+
+
+func _deal_damage(enemy: Enemy, amount: int, color: Color) -> void:
+	enemy.take_damage(amount, _dash_direction)
+
+	var parent: Node = get_tree().current_scene
+	if parent == null:
+		parent = get_parent()
+	if parent == null:
+		return
+
+	var number := DamageNumberScript.new()
+	number.configure(amount, color, enemy.global_position)
+	number.z_index = 20
+	parent.add_child(number)
+	number.global_position = enemy.global_position
 
 
 func _add_combo() -> void:
@@ -465,7 +574,7 @@ func _take_body_damage(from_position: Vector2) -> void:
 	_apply_damage(1, from_position)
 
 
-func _apply_damage(amount: int, _from_position: Vector2) -> void:
+func _apply_damage(amount: int, from_position: Vector2) -> void:
 	# A live execution chain is a shield: it eats the hit and clears hostile
 	# projectiles and attacks, and the chain is what you lose.
 	if combo > 0:
@@ -475,6 +584,8 @@ func _apply_damage(amount: int, _from_position: Vector2) -> void:
 			body.color = Color(0.8, 1.0, 1.0)
 		_clear_hostile_hazards()
 		_break_combo()
+		_freeze(HITSTOP_HIT)
+		add_trauma(0.25)
 		return
 
 	health -= amount
@@ -483,6 +594,15 @@ func _apply_damage(amount: int, _from_position: Vector2) -> void:
 	if body != null:
 		body.color = Color(1.0, 0.25, 0.25)
 	_break_combo()
+
+	# Knock away from whatever hit us; `from_position` finally earns its keep.
+	var away: Vector2 = global_position - from_position
+	if away.length_squared() > 0.01:
+		_momentum = away.normalized() * HURT_KNOCKBACK
+
+	_freeze(HITSTOP_HURT)
+	add_trauma(0.45)
+	hurt.emit()
 	health_changed.emit(maxi(health, 0), max_health)
 
 	if health <= 0:

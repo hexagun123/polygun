@@ -23,6 +23,7 @@ The dash combat design was reworked after playtesting: the old charge-up read as
 - **Stage 1 — Instant dash + wind** — ✅ done (headless-verified; wind feel still needs a manual run).
 - **Stage 2 — Execute + combo** — ✅ done (headless-verified; band feel still needs a manual run).
 - **Stage 3 — Bullet time + combo shield** — ✅ done (headless-verified; feel still needs a manual run).
+- **Stage 4 — Feel pass (core 6)** — ✅ done (headless-verified; feel still needs a manual run).
 
 ## Locked design — dash combat v5
 
@@ -156,11 +157,16 @@ Acceptance: verified headless — execute kills a 3 HP enemy and adds combo; a n
 
 Acceptance: verified headless — combo 1/3 produce 0.896/0.792 time scale; the player still crosses 150 px in 0.5 s real time at 0.79; a hit with a combo costs no HP but clears the chain; without a combo the same hit costs 1 HP. Still needs a manual run.
 
-### Stage 4 — Feel-lite (core 6)
+### Stage 4 — Feel-lite (core 6) (done)
 
-Hit-stop (dash hit ~0.035 s, kill ~0.060 s, hurt ~0.050 s), screen shake (trauma model, real-time decay), dash ghosts (every ~40 px, capped, faded), damage numbers (parented to the current scene), zoom punch (single `_zoom_mult`, returns to exactly 1.0), hurt feedback (knockback from `from_position` + red flash + shake).
+- [x] Hit-stop through `TimeControl` (hit 0.035 s, kill 0.060 s, hurt 0.050 s), halved in bullet time.
+- [x] Screen shake: trauma model on the camera `offset`, real-time decay, aim corrected for the shake.
+- [x] Dash ghosts every 40 px, capped at 8, faded in real time.
+- [x] Floating damage numbers parented to the scene, normal vs execute colours.
+- [x] Zoom punch on kill, always settling to exactly 1.0.
+- [x] Hurt feedback: knockback away from `from_position`, red full-screen flash below the HUD, shake + hit-stop.
 
-Requires Stage 3's time authority first.
+Acceptance: verified headless — time scale dipped to 0.04 on a kill then restored; zoom hit 0.964 and returned to 1.0; ghosts capped at 4 for a tap dash and faded; damage numbers spawned and cleared; shake settled to zero; hurt fired the signal, cost 1 HP and knocked away; death reset time to 1.0. Still needs a manual run.
 
 ### Stage 5 — Executables
 
