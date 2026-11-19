@@ -24,6 +24,8 @@ The dash combat design was reworked after playtesting: the old charge-up read as
 - **Stage 2 — Execute + combo** — ✅ done (headless-verified; band feel still needs a manual run).
 - **Stage 3 — Bullet time + combo shield** — ✅ done (headless-verified; feel still needs a manual run).
 - **Stage 4 — Feel pass (core 6)** — ✅ done (headless-verified; feel still needs a manual run).
+- **Tuning pass — wind curve + execution B** — in progress.
+- **Section — Level one** — in progress.
 
 ## Locked design — dash combat v5
 
@@ -34,18 +36,20 @@ Goal: instant response, technique-heavy, fast. The dash is the whole game.
 - **Hold LMB to wind, release to dash.** Movement is never slowed, and a release during cooldown is buffered so it fires the instant the cooldown ends.
 - Wind is *distance*, not a delay. Aim feedback is an endpoint crosshair: it shows where the dash will land, turns gold when that landing would execute, and red when it would end inside a body.
 - Fixed dash duration means distance **is** speed; damage rides on speed.
+- **No floor.** The dash starts at 0 px and eases to a roof of 520 px along a smooth S-curve, so close-range executes are possible and max wind settles instead of jumping.
 
 ```
-wind        0 → 1 over 0.9 s (persists between dashes)
+wind        0 → 1 over 0.9 s, spent by the dash (new hold each time)
+curve       f(w) = w - sin(2πw)/(2π)      # zero at both ends, sensitive in the middle
 duration    0.1 s fixed
-distance    180 → 420 px
-speed       1800 → 4200 px/s
-normal hit  round(2 + 2·wind)         # 2 .. 4
-execute     normal hit × 3            # 6 .. 12
+distance    520 · f(w)                     # 0 .. 520 px
+speed       distance / 0.1                 # 0 .. 5200 px/s
+normal hit  round(1 + 3·f(w))              # 1 .. 4
+execute     normal hit × 3                 # 3 .. 12
 cooldown    0.12 s, momentum carried through the landing
 ```
 
-Note: partial wind only truly matters because the wind rate is slow (0.9 s). A 10 px execute band at the old 0.4 s rate was ~17 ms of hold precision; at 0.9 s it is ~37 ms.
+Tuning hooks: `dash_max_distance` (520) and `wind_curve_strength` (1.0; 0 = linear). A future automated-weapon build can flatten the curve without touching mechanics.
 
 ### Execution bands
 
@@ -57,20 +61,20 @@ Resolve each object **once per dash**, geometrically (no per-frame sampling, no 
 2. **End distance** — classify by `d` = distance from the dash endpoint to the object centre.
 
 ```
-ENEMY  (s = 20)
-  d ≤ s                 BODY        self-damage (combo shield absorbs first)
-  s < d ≤ 1.5·s         EXECUTE     combo +1
-  d > 1.5·s             normal hit
+ENEMY  (s = 20)          body_ratio 0.6, execute_ratio 2.0
+  d ≤ 0.6·s             BODY        self-damage (combo shield absorbs first)
+  0.6·s < d ≤ 2.0·s     EXECUTE     combo +1        (12–40 px: 28 px window)
+  d > 2.0·s             normal hit
 
-BOSS   (s = 48)
-  d ≤ s                 BODY
-  s < d ≤ 1.1·s         PERFECT     big damage, combo KEPT
-  1.1·s < d ≤ 2·s       EXECUTE     big damage, combo RESETS
-  d > 2·s               normal hit
+BOSS   (s = 48)          body_ratio 0.6, execute_ratio 2.0, perfect_ratio 1.1
+  d ≤ 0.6·s             BODY
+  0.6·s < d ≤ 1.1·s     PERFECT     big damage, combo KEPT   (29–53 px)
+  1.1·s < d ≤ 2.0·s     EXECUTE     big damage, combo RESETS
+  d > 2.0·s             normal hit
 
-PROJECTILE  (s ≈ 8)
-  proximity during the dash within max(2·s, 56)   EXECUTE   combo +1
-  any normal hit                                   destroys it, no combo
+PROJECTILE  (s ≈ 6)      proximity_execution, execute_floor 40
+  path within 40 px     EXECUTE     combo +1
+  any normal hit        destroys it, no combo
 ```
 
 - Any object the dash passes through but does not execute takes a **normal hit** (damage from dash speed).
@@ -96,7 +100,7 @@ Logarithmic, no floor, player unaffected. Losing the combo snaps back to 1.0.
 
 ### Data-driven
 
-`Enemy.execute_ratio`, `body_ratio`, `perfect_ratio` (boss only), `Projectile.execute_ratio` / `execute_floor`, plus a future global `execution_scale` multiplier for hard modes. Never hard-code the bands again.
+All objects the dash can hit share `Executable` (`entities/executable/executable.gd`, extends `Polygon`): `radius`, `health`, `take_damage`, `execute_ratio`, `body_ratio`, `perfect_ratio`, `execute_damage_scale`, `execute_breaks_combo`, `execute_floor`, `proximity_execution`. `Enemy` and `EnemyProjectile` extend it, and the player resolves one group (`&"executables"`). Everything stays exported for future difficulty scaling.
 
 ## Roadmap
 
@@ -116,12 +120,12 @@ Acceptance: verified headless — a press during cooldown starts a charge once t
 ### Stage 1 — Instant dash + wind (done)
 
 - [x] Hold to wind, release to dash; wind 0→1 over 0.9 s and is spent by the dash; movement never slowed.
-- [x] Fixed 0.1 s duration; distance 180→420; speed-based damage 2→4.
+- [x] Fixed 0.1 s duration; distance 0→520 through the S-curve; speed-based damage 1→4.
 - [x] Charge state machine replaced by `_wind` + a `_winding` hold + `READY` / `DASHING`.
 - [x] Path-based resolution: hits resolve against the segment travelled each physics frame, not per-frame point queries.
 - [x] Endpoint crosshair replaces the distance line and previews execution (gold) and body self-damage (red).
 
-Acceptance: verified headless — holding does not dash on its own; the crosshair is visible and gold exactly when the landing executes (confirmed by the enemy dying); the wind is spent by the dash; full wind gives 4200 px/s and 4 damage. Still needs a manual run to tune wind/distance feel.
+Acceptance: verified headless — holding does not dash on its own; the crosshair is visible and gold exactly when the landing executes (confirmed by the enemy dying); the wind is spent by the dash. Still needs a manual run to tune wind/distance feel.
 
 ### Stage 2 — Execute + combo
 
@@ -168,11 +172,27 @@ Acceptance: verified headless — combo 1/3 produce 0.896/0.792 time scale; the 
 
 Acceptance: verified headless — time scale dipped to 0.04 on a kill then restored; zoom hit 0.964 and returned to 1.0; ghosts capped at 4 for a tap dash and faded; damage numbers spawned and cleared; shake settled to zero; hurt fired the signal, cost 1 HP and knocked away; death reset time to 1.0. Still needs a manual run.
 
-### Stage 5 — Executables
+### Tuning pass — wind curve + execution B (in progress)
 
-- Enemy/boss projectiles and boss spawns as combo fuel.
-- Every boss needs one mechanic that spawns executables.
-- Projectile execute range with an absolute floor; normal hits destroy them without combo.
+- [ ] Remove `dash_min_distance`; distance = `dash_max_distance · (w - sin(2πw)/(2π))` with `wind_curve_strength` export.
+- [ ] Damage scales with the curve: `round(1 + 3·f(w))`.
+- [ ] `body_ratio` 0.6 for enemy and boss; `execute_ratio` 2.0; boss `perfect_ratio` stays 1.1.
+- [ ] Aim marker, `_start_dash` and damage all read the same curve helper.
+
+Acceptance: headless — a short hold lands in the 12–40 px band; the crosshair still predicts execution; the boss perfect band is 29–53 px.
+
+### Section — Level one (in progress)
+
+One arena, one fully tuned level, no upgrades or progression. The level table exists so a second level is data-only later.
+
+1. **`entities/executable/executable.gd`** — `class_name Executable extends Polygon` with health, flash, `take_damage`, `died` / `health_changed`, `execute_range()` / `body_range()`, the ratio exports, `execute_floor` and `proximity_execution`. `Enemy extends Executable`; the player resolves group `&"executables"`.
+2. **Projectile** — `EnemyProjectile extends Executable`: r 6, HP 1, speed 260, damage 1, lifetime 3 s, no collision layer, joins `&"hostile_projectiles"` + `&"executables"`, executes by proximity within 40 px.
+3. **Cast** — Spitter (r18, HP 3, holds 320–420 px, 0.35 s telegraph, fires every 1.6 s), Lunger (r22, HP 4, windup → 520 px/s lunge → recover), Tank (r34, HP 9, knockback ×0.2, contact 2).
+4. **Boss** — HP 36; fan volley every ~6 s (0.5 s telegraph, 5–7 projectiles at 240 px/s) alongside the charge; phase 2 at ≤50 % HP turns the volley into a full ring and shortens the charge cooldown.
+5. **Level shape** — waves 4 chasers / 3 chasers + 2 spitters / 3 chasers + 2 spitters + 1 lunger + 1 tank; all at once, ring 300–560 px, intermission 0.8 s.
+6. **Flow** — boss death → clear → victory (one level). Director gains a `level` index and a `LEVEL n` HUD line.
+
+Acceptance: headless — spitters fire executable projectiles, projectiles execute by proximity, all three roles spawn, the boss volleys in both phases, the level table spawns the planned counts, and the run completes on boss death.
 
 ### Stage 6 — Secondary damage
 
@@ -181,7 +201,7 @@ Acceptance: verified headless — time scale dipped to 0.04 on a kill then resto
 
 ### Stage 7 — Pacing + rebalance
 
-- Intermission 2.0 → 0.8 s, spawn ring 450–700 → 300–560, enemy speed 140 → 190.
+- Pacing (intermission, spawn ring) now ships with the level section.
 - Enemy/boss HP and timings around the new damage numbers.
 
 ### Stage 8 — Polish
@@ -219,4 +239,4 @@ Acceptance: verified headless — time scale dipped to 0.04 on a kill then resto
 
 - Design is locked; implementation starts at Stage 0.
 - Keep `.gd.uid` sidecars; ask the user to make UID-sensitive editor changes.
-- After each stage: update `CURRENT_STATE.md`, show the diff, and ask before committing.
+- After each stage: update `CURRENT_STATE.md` and commit.
