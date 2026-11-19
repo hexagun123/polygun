@@ -6,7 +6,7 @@
 
 ## Planning mode
 
-- always ask clarifying questions
+- always ask clarifying questions using the question tool to present interactive options
 - never assume designs, tech stack or features
 
 ## change / edit mode
