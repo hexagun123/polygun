@@ -12,9 +12,13 @@ const DashGhostScript = preload("res://entities/fx/dash_ghost.gd")
 const DamageNumberScript = preload("res://entities/fx/damage_number.gd")
 
 const HIT_FLASH_TIME: float = 0.12
-const WIND_PREVIEW_COLOR: Color = Color(0.55, 1.0, 0.75)
+const MARKER_IDLE_COLOR: Color = Color(0.55, 1.0, 0.75)
+const MARKER_EXECUTE_COLOR: Color = Color(1.0, 0.82, 0.3)
+const MARKER_DANGER_COLOR: Color = Color(1.0, 0.3, 0.3)
+const MARKER_SIZE: float = 10.0
+const MARKER_GAP: float = 4.0
 
-## A press made while dashing / cooling down is remembered this long so the
+## A release that lands during a dash / cooldown is remembered this long so the
 ## input is never silently dropped.
 const DASH_BUFFER_TIME: float = 0.2
 ## The camera leads the player along its movement direction, which is what
@@ -103,7 +107,10 @@ var _dash_buffer: float = 0.0
 var _inv_time_scale: float = 1.0
 var _momentum: Vector2 = Vector2.ZERO
 var _dash_exceptions: Array[Node] = []
-var _wind_preview: Line2D
+## True between dash press and release: wind builds, release fires the dash.
+var _winding: bool = false
+var _aim_marker: Node2D
+var _marker_lines: Array[Line2D] = []
 
 
 func _ready() -> void:
@@ -128,13 +135,6 @@ func _ready() -> void:
 	_base_outline_color = outline.default_color
 	_body_points = body.polygon
 
-	_wind_preview = Line2D.new()
-	_wind_preview.points = PackedVector2Array([Vector2(radius + 4.0, 0.0), Vector2(radius + 4.0, 0.0)])
-	_wind_preview.width = 2.0
-	_wind_preview.default_color = WIND_PREVIEW_COLOR
-	_wind_preview.visible = false
-	add_child(_wind_preview)
-
 	wind_audio = AudioStreamPlayer.new()
 	wind_audio.stream = SfxScript.cached_tone(220.0, 440.0, 1.5, 7000.0)
 	add_child(wind_audio)
@@ -143,7 +143,34 @@ func _ready() -> void:
 	dash_audio.stream = SfxScript.cached_noise(0.15, 14000.0)
 	add_child(dash_audio)
 
+	_build_aim_marker()
+
 	health_changed.emit(health, max_health)
+
+
+## Endpoint crosshair: shows where the dash will land and turns gold when that
+## landing would execute, red when it would end inside a body.
+func _build_aim_marker() -> void:
+	_aim_marker = Node2D.new()
+	_aim_marker.name = "AimMarker"
+	_aim_marker.top_level = true
+	_aim_marker.z_index = 10
+	_aim_marker.visible = false
+	add_child(_aim_marker)
+
+	var segments: Array[PackedVector2Array] = [
+		PackedVector2Array([Vector2(-MARKER_SIZE, 0.0), Vector2(-MARKER_GAP, 0.0)]),
+		PackedVector2Array([Vector2(MARKER_GAP, 0.0), Vector2(MARKER_SIZE, 0.0)]),
+		PackedVector2Array([Vector2(0.0, -MARKER_SIZE), Vector2(0.0, -MARKER_GAP)]),
+		PackedVector2Array([Vector2(0.0, MARKER_GAP), Vector2(0.0, MARKER_SIZE)]),
+	]
+	for segment: PackedVector2Array in segments:
+		var line := Line2D.new()
+		line.points = segment
+		line.width = 2.0
+		line.default_color = MARKER_IDLE_COLOR
+		_aim_marker.add_child(line)
+		_marker_lines.append(line)
 
 
 func _update_camera_limits() -> void:
@@ -202,49 +229,99 @@ func _physics_process(delta: float) -> void:
 	_update_camera(dt, ground_velocity)
 
 
-## Wind builds only while holding; it persists after release and is spent by
-## the dash. Tap = minimum distance, hold before the next press = farther.
+## Hold to wind, release to dash. Wind starts at zero on press and is spent by
+## the release, so every dash is aimed with a deliberate hold length.
 func _update_wind(delta: float) -> void:
-	if Input.is_action_pressed(&"dash"):
-		var was_empty: bool = _wind <= 0.0
-		_wind = minf(_wind + delta / maxf(dash_wind_time, 0.001), 1.0)
+	# `just_pressed` is folded in so a press+release inside one physics tick is
+	# still seen as a (zero-length) hold rather than being dropped.
+	var pressed: bool = Input.is_action_pressed(&"dash") or Input.is_action_just_pressed(&"dash")
+
+	if not _winding and _dash_buffer <= 0.0 and pressed:
+		_winding = true
+		_wind = 0.0
 		if wind_audio != null:
-			if was_empty:
-				wind_audio.play()
-			wind_audio.pitch_scale = lerpf(0.7, 1.9, _wind)
-	elif wind_audio != null and wind_audio.playing:
-		wind_audio.stop()
+			wind_audio.pitch_scale = 0.7
+			wind_audio.play()
+
+	if _winding:
+		if pressed:
+			_wind = minf(_wind + delta / maxf(dash_wind_time, 0.001), 1.0)
+			if wind_audio != null:
+				wind_audio.pitch_scale = lerpf(0.7, 1.9, _wind)
+		else:
+			# Release fires the dash; if the cooldown is still running the
+			# release is buffered and fires the moment it ends.
+			_winding = false
+			_dash_buffer = DASH_BUFFER_TIME
+			if wind_audio != null:
+				wind_audio.stop()
 
 	_update_wind_visuals()
 
 
 func _update_wind_visuals() -> void:
-	var visible_now: bool = _wind > 0.01
-	_wind_preview.visible = visible_now
+	var active: bool = _winding or _dash_buffer > 0.0
 
-	if not visible_now:
-		if outline != null:
+	if outline != null:
+		if active:
+			outline.width = _base_outline_width + 4.0 * _wind
+			outline.default_color = _base_outline_color.lerp(Color.WHITE, _wind)
+		else:
 			outline.width = _base_outline_width
 			outline.default_color = _base_outline_color
+
+	_update_aim_marker(active)
+
+
+func _update_aim_marker(active: bool) -> void:
+	_aim_marker.visible = active
+	if not active:
 		return
 
 	var distance: float = lerpf(dash_min_distance, dash_max_distance, _wind)
-	_wind_preview.set_point_position(1, Vector2(distance, 0.0))
-	_wind_preview.default_color = Color(
-		WIND_PREVIEW_COLOR.r,
-		WIND_PREVIEW_COLOR.g,
-		WIND_PREVIEW_COLOR.b,
-		lerpf(0.35, 0.9, _wind)
-	)
+	var origin: Vector2 = global_position
+	var endpoint: Vector2 = origin + Vector2.RIGHT.rotated(rotation) * distance
+	_aim_marker.global_position = endpoint
 
-	if outline != null:
-		outline.width = _base_outline_width + 4.0 * _wind
-		outline.default_color = _base_outline_color.lerp(Color.WHITE, _wind)
+	var segment: Vector2 = endpoint - origin
+	var segment_len_sq: float = segment.length_squared()
+	var danger: bool = false
+	var execute: bool = false
+
+	for node: Node in get_tree().get_nodes_in_group(&"enemies"):
+		var enemy: Enemy = node as Enemy
+		if enemy == null or not is_instance_valid(enemy):
+			continue
+
+		var size: float = enemy.radius
+		var end_distance: float = endpoint.distance_to(enemy.global_position)
+		if end_distance <= size * enemy.body_ratio:
+			danger = true
+			continue
+		if end_distance > size * enemy.execute_ratio:
+			continue
+		if _closest_path_distance(enemy.global_position, origin, segment, segment_len_sq) <= size:
+			execute = true
+
+	var color: Color = MARKER_IDLE_COLOR
+	if danger:
+		color = MARKER_DANGER_COLOR
+	elif execute:
+		color = MARKER_EXECUTE_COLOR
+	for line in _marker_lines:
+		line.default_color = color
+
+
+func _closest_path_distance(point: Vector2, from: Vector2, segment: Vector2, segment_len_sq: float) -> float:
+	var t: float = 0.0
+	if segment_len_sq > 0.0001:
+		t = clampf((point - from).dot(segment) / segment_len_sq, 0.0, 1.0)
+	return (from + segment * t).distance_to(point)
 
 
 func _reset_wind_visuals() -> void:
-	if _wind_preview != null:
-		_wind_preview.visible = false
+	if _aim_marker != null:
+		_aim_marker.visible = false
 	if outline != null:
 		outline.width = _base_outline_width
 		outline.default_color = _base_outline_color
@@ -334,6 +411,7 @@ func _start_dash() -> void:
 
 	_dash_remaining = distance
 	_dash_state = DashState.DASHING
+	_winding = false
 	_dash_crossings.clear()
 	_dash_executed = false
 	_ghost_travel = 0.0
@@ -544,6 +622,7 @@ func _end_dash() -> void:
 func _cancel_dash() -> void:
 	_release_dash_exceptions()
 	_dash_state = DashState.READY
+	_winding = false
 	_wind = 0.0
 	_cooldown_timer = 0.0
 	_momentum = Vector2.ZERO

@@ -31,8 +31,8 @@ Goal: instant response, technique-heavy, fast. The dash is the whole game.
 
 ### Dash + wind
 
-- **Every LMB press dashes immediately.** Nothing is gated behind a charge, and movement is never slowed.
-- Wind is *distance*, not a delay. It builds while LMB is held between dashes and persists, so taps poke and held wind reaches far.
+- **Hold LMB to wind, release to dash.** Movement is never slowed, and a release during cooldown is buffered so it fires the instant the cooldown ends.
+- Wind is *distance*, not a delay. Aim feedback is an endpoint crosshair: it shows where the dash will land, turns gold when that landing would execute, and red when it would end inside a body.
 - Fixed dash duration means distance **is** speed; damage rides on speed.
 
 ```
@@ -115,13 +115,13 @@ Acceptance: verified headless — a press during cooldown starts a charge once t
 
 ### Stage 1 — Instant dash + wind (done)
 
-- [x] Press-to-dash immediately, wind 0→1 over 0.9 s persisting between dashes, movement never slowed.
+- [x] Hold to wind, release to dash; wind 0→1 over 0.9 s and is spent by the dash; movement never slowed.
 - [x] Fixed 0.1 s duration; distance 180→420; speed-based damage 2→4.
-- [x] Charge state machine replaced by `_wind` + `READY` / `DASHING`.
+- [x] Charge state machine replaced by `_wind` + a `_winding` hold + `READY` / `DASHING`.
 - [x] Path-based resolution: hits resolve against the segment travelled each physics frame, not per-frame point queries.
-- [x] Wind preview line shows the stored distance while held.
+- [x] Endpoint crosshair replaces the distance line and previews execution (gold) and body self-damage (red).
 
-Acceptance: verified headless — press dashes instantly at ~1800 px/s with no charge delay; winding keeps full 300 px/s movement; full wind gives 4200 px/s and 4 damage; an enemy on the path takes the hit. Still needs a manual run to tune wind/distance feel.
+Acceptance: verified headless — holding does not dash on its own; the crosshair is visible and gold exactly when the landing executes (confirmed by the enemy dying); the wind is spent by the dash; full wind gives 4200 px/s and 4 damage. Still needs a manual run to tune wind/distance feel.
 
 ### Stage 2 — Execute + combo
 
@@ -203,7 +203,7 @@ Acceptance: verified headless — time scale dipped to 0.04 on a kill then resto
 
 ## Decisions locked in this discussion
 
-- **Dash model B**: press = instant dash; holding winds the *next* dash; movement is never slowed.
+- **Dash model B**: hold = wind, release = dash; movement is never slowed (revised after playtesting — press-to-dash felt wrong).
 - **Fixed 0.1 s dash duration**; wind changes distance, so distance sets speed and damage.
 - **Execution is positional**: cross the object, then end within `ratio × radius`.
 - **Regular enemies are executables**; the boss is a harder, more forgiving band (2·s) with a 1.1·s perfect band that keeps the combo.

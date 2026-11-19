@@ -13,7 +13,7 @@ Snapshot of what the game actually does today, written as planning input. Comple
 
 1. Spawn at arena centre as a green triangle.
 2. `WaveDirector` starts wave 1: 3 red pentagons spawn 450–700 px around the player and chase.
-3. Aim with the mouse. Press LMB to dash instantly toward the cursor; hold LMB to wind the *next* dash (preview line grows; movement is never slowed). The wind is spent by the dash.
+3. Aim with the mouse. Hold LMB to wind — a crosshair shows where the dash will land, turning gold when that landing would execute and red when it would end inside an enemy. Release to dash toward the cursor. Movement is never slowed while winding.
 4. The dash lasts 0.1 s and wind maps distance 180–420 px, so distance sets speed (1800–4200 px/s) and damage (2–4). It passes through enemies, damages each one once per dash along the travelled segment, and stops early on walls. I-frames cover the dash + 0.05 s.
 5. A dash that crosses an enemy and ends within 1.5 × its radius of its centre **executes** it: ×3 damage and +1 combo. Ending the dash inside the enemy costs the player 1 HP instead. The combo breaks on any dash that executes nothing, after 1 s without an execute, or when the player takes a hit.
 6. Bosses execute at 2 × radius, and a boss execute resets the combo — unless the hit lands inside the tighter perfect band (1.1 × radius) or kills it.
@@ -29,7 +29,7 @@ Snapshot of what the game actually does today, written as planning input. Comple
 | --- | --- |
 | Move | WASD or arrow keys (`move_left/right/up/down`) |
 | Aim | Mouse position (player faces cursor every physics frame) |
-| Dash | Press LMB to dash; hold to wind the next dash (`dash`) |
+| Dash | Hold LMB to wind, release to dash (`dash`) |
 | Restart | `R` (`restart`) — only on the win/lose overlay |
 
 No pause menu or controller/touch input.
@@ -45,9 +45,9 @@ No pause menu or controller/touch input.
 - Triangle, radius 24, green; collision layer 2, mask 1. Group `&"player"`. Signals: `health_changed(current, maximum)`, `died`.
 - Speed 300 px/s, mouse-facing aim (aim stays free while winding).
 - Dash state machine: `READY` / `DASHING` (no charge state; pressing always dashes).
-  - Wind: holding LMB fills `_wind` 0→1 over 0.9 s. It persists after release and is spent by the dash, so tap = 180 px and a held wind = up to 420 px. Movement is never slowed while winding.
+  - Wind: press LMB to start winding, release to dash. `_wind` fills 0→1 over 0.9 s and is spent by that dash, so a short hold = 180 px and a full hold = up to 420 px. Movement is never slowed while winding.
   - Dash lasts 0.1 s; distance = 180→420 px, speed = distance / 0.1 (1800→4200 px/s), damage = 2→4.
-  - Preview `Line2D` shows the stored wind distance; outline widens/brightens with wind; rising tone while holding.
+  - Endpoint crosshair (`AimMarker`, `top_level` so it never spins with the player) shows exactly where the dash will land: green normally, gold when the landing would execute, red when it would end inside an enemy. Outline widens/brightens with wind; rising tone while holding.
   - Moves with `move_and_slide`, ends early on wall contact. Enemies get temporary collision exceptions so the player passes through them.
   - Hits are resolved geometrically as the dash travels, then **classified once when the dash ends**: ending inside the body (`d ≤ body_ratio·radius`) costs the player 1 HP (bypassing dash i-frames); crossing the body and ending within `execute_ratio·radius` executes for ×3 damage; everything else takes a normal hit.
   - Execution builds the combo (`+1`), which breaks on a non-executing dash, after 1 s without an execute, or when the player takes a hit. Emits `combo_changed(combo)`.
@@ -55,7 +55,7 @@ No pause menu or controller/touch input.
   - Feel: hit-stop through `TimeControl.freeze` (hit 0.035 s, kill 0.060 s, hurt 0.050 s, halved in bullet time), trauma-based camera shake (`camera.offset`, trauma², 10 px max), zoom punch (`camera.zoom` lerped back to exactly 1.0), dash ghosts every 40 px (cap 8), floating damage numbers, and hurt knockback away from `from_position` plus a `hurt` signal for the HUD flash.
   - Aim and dash direction subtract `camera.offset` (`_aim_point()`) so shake never skews them.
   - I-frames for dash duration + 0.05 s; 0.12 s cooldown after dash ends. Noise whoosh on dash start.
-  - Presses made while dashing / cooling down are buffered for 0.2 s instead of being dropped.
+  - Presses/releases made while dashing / cooling down are buffered for 0.2 s instead of being dropped.
   - Dash end keeps 18 % of dash speed as momentum that decays at 2800 px/s², so landing slides instead of stopping dead.
 - Camera2D with smoothing (10, boosted to 55 while dashing) clamped to ±1536, plus a movement-direction look-ahead (45 px at walking speed, capped at 90 px).
 - HP 5, 0.7 s damage i-frames, red flash 0.12 s. At 0 HP: sets `_dead`, cancels dash, dims body/outline, early-returns from physics and emits `died` (no auto-respawn). `take_damage` ignores `from_position`.
