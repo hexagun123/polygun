@@ -195,8 +195,6 @@ func _physics_process(delta: float) -> void:
 	_invulnerability_timer = maxf(_invulnerability_timer - dt, 0.0)
 	_cooldown_timer = maxf(_cooldown_timer - dt, 0.0)
 	_dash_buffer = maxf(_dash_buffer - dt, 0.0)
-	if Input.is_action_just_pressed(&"dash"):
-		_dash_buffer = DASH_BUFFER_TIME
 	if combo > 0:
 		_combo_timer = maxf(_combo_timer - dt, 0.0)
 		if _combo_timer <= 0.0:
