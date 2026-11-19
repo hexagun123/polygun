@@ -37,7 +37,7 @@ Stage B (wave slice) is implemented:
 - Code-built HUD (`ui/hud.gd`) with HP pips, wave counter, boss bar and win/lose overlay; `R` restarts.
 - Verified with a temporary headless Godot 4.7.2 harness: waves 3/5/7 spawn and advance, boss stats/state machine (windup → 600 px/s charge → recover), victory, game over, pause and `R` restart; the real scene also ran clean headless. Still run the main scene once to tune feel.
 
-Next step: Stage C — combo, then Stage D — bullet time.
+Next step: Stage C — combo, then Stage D — bullet time, then Stage F — feel pass (core 6). Stage E (rebalance) follows F.
 
 ## Finalized plan — dash combat (2026-11-19)
 
@@ -109,13 +109,38 @@ Acceptance (verified with a temporary headless Godot 4.7.2 harness, then removed
 - Reset `time_scale` to 1.0 on death, win and scene reload.
 - Camera smoothing also slows; boost smoothing temporarily if the player outruns the camera.
 
+### Stage F — feel pass (core 6)
+
+Applies on top of the C/D-tuned core. "Core 6": hit-stop, screen shake, dash ghosts, damage numbers, zoom punch, hurt feedback. Readability extras (endpoint reticle, charge tiers, combo HUD pop, bullet-time tint) and audio layering stay for a later polish pass.
+
+**Time authority (prerequisite, before hit-stop ships):** `Engine.time_scale` is a single global; Stage D (bullet time) and hit-stop must not write it independently or they cancel/lock each other and bullet-time end can resurrect a stale slow-mo. Centralise in `entities/fx/time_control.gd` (`class_name TimeControl`) with separate `bullet_time_factor` and `hitstop_factor`: `Engine.time_scale = bullet_time_factor * hitstop_factor`, per-dash hit-stop budget + "one per physics frame" guard, overlapping freezes extend a real-time deadline, restore timer uses `create_timer(..., ignore_time_scale = true)`. Player compensates for **bullet time only** (`delta / bullet_time_factor`) so hit-stop still freezes the player. `TimeControl.reset()` (`factors = 1, time_scale = 1.0`) on HUD `R` restart *and* director `_begin()` (static state + `time_scale` survive scene reload). Halve/skip hit-stop during bullet time.
+
+**The 6 effects:**
+- Hit-stop: dash hit ~0.035 s, kill ~0.060 s, player hurt ~0.050 s, clamped by per-dash budget.
+- Screen shake (player `Camera2D`): trauma model (`trauma^2`, decay in real time, `offset = Vector2.ZERO` when settled). `look_at` and dash-direction capture must subtract the shake offset (`_aim_point()` helper) so aim/release stay correct — do not rotate the camera. Clamp/skip against arena limits to avoid showing the void.
+- Dash ghosts (`entities/fx/dash_ghost.gd`): plain `Node2D` copies of sides/radius/rotation/color, fade ~0.35→0 over ~0.18 s, emitted by distance travelled (not a `delta` timer) every ~40 px, capped ~8, `z_index = -1`.
+- Damage numbers (`entities/fx/damage_number.gd`): short-lived `Label`, parented to `get_tree().current_scene` (not the enemy — survives `queue_free`), rise/pop/fade.
+- Zoom punch: recompute a single `_zoom_mult` (`camera.zoom = Vector2.ONE * _zoom_mult`), never compound-multiply; kill punch ~1.0 → 0.96 → 1.0.
+- Hurt feedback: use the currently-ignored `from_position` — player knockback away from source, full-screen red flash `ColorRect` on its own `CanvasLayer` (below HUD, `MOUSE_FILTER_IGNORE`), shake + hit-stop.
+
+**Implementation notes / pitfalls:**
+- Ghost emission and shake decay driven by real time / distance so density and feel stay correct under bullet time and freeze.
+- Do not generate audio per hit; reuse streams and set `pitch_scale`.
+- Boss already animates `body.scale` for telegraphs — colour/outline feedback only.
+- Cache any new visual bases after `super._ready()` in `player.gd` (`outline` exists only then).
+- `WaveDirector` intermission/end `Timer`s are `time_scale`-scaled — decide at implementation whether they should ignore it.
+
+**Stage F files (expected):** `entities/fx/time_control.gd`, `entities/fx/dash_ghost.gd`, `entities/fx/damage_number.gd`, `entities/player/player.gd`, `entities/enemy/enemy.gd`, `ui/hud.gd` (+ small scene/overlay hook as needed), `world/wave_director.gd` (reset/begin guard).
+
+**Acceptance (manual):** dash into a crowd → freeze/number/ghost/shake read without exceeding the per-dash hit-stop budget; kill → zoom punch returns to exactly 1.0; hurt → knockback away from `from_position` + red flash; aim/dash release stay correct while shaking; die during hit-stop → `R` restarts at normal speed and `Engine.time_scale == 1.0`; damage numbers survive enemy death; ghost density unchanged under bullet time.
+
 ### Stage E — rebalance
 
-- Tune enemy/boss HP and timings around dash damage; optionally bring the gun back as a secondary/unlock.
+- Tune enemy/boss HP and timings around dash damage (after Stage F feel); optionally bring the gun back as a secondary/unlock.
 
 ### Verification
 
-- Manual, in Godot: run the main scene and play the dash + wave slice (3 / 5 / 7 enemies → boss → win/lose). Combo and bullet time are still unbuilt. No CLI tests exist.
+- Manual, in Godot: run the main scene and play the dash + wave slice (3 / 5 / 7 enemies → boss → win/lose). Combo, bullet time and the feel pass are still unbuilt. No CLI tests exist.
 
 ## User's vision
 
@@ -153,9 +178,11 @@ Original touch points (implemented):
 
 1. ✅ Dash core — charge/release dash is the main attack; gun removed for now.
 2. ✅ Wave slice — 3 waves + placeholder boss (chaser + charge) + HUD + game over/restart.
-3. Combo + bullet time — combo scaling, then world-slowing bullet time.
-4. Enemy/boss pools; upgrade-only inheritance — stats/unlocks persist across runs; no persistent `Player` node.
-5. Polish — better SFX, screen shake/particles; optional authored arena-template pool.
+3. Combo + bullet time (Stage C/D) — combo scaling, then world-slowing bullet time.
+4. Feel pass (Stage F, core 6) — hit-stop with central time authority, shake, dash ghosts, damage numbers, zoom punch, hurt feedback.
+5. Rebalance (Stage E) — tune HP/timings around dash/combo/bullet time + feel.
+6. Enemy/boss pools; upgrade-only inheritance — stats/unlocks persist across runs; no persistent `Player` node.
+7. Polish — readability extras (reticle/charge tiers/combo pop/bullet-time tint), audio layering, optional authored arena-template pool.
 
 ## Resolved questions
 
@@ -167,4 +194,4 @@ Original touch points (implemented):
 - [x] Stage A implemented with Godot 4.x GDScript and verified headless; play the main scene once to tune feel.
 - [x] Stage B implemented and verified headless (waves 3/5/7 → boss → win/lose, HUD, R restart). Play it once to tune enemy/boss numbers.
 - Keep `.gd.uid` sidecars; ask the user to make UID-sensitive changes in the editor.
-- Next: Stage C (combo), then Stage D (bullet time).
+- Next: Stage C (combo), then Stage D (bullet time), then Stage F (feel pass, core 6), then Stage E (rebalance). See Stage F for the time-authority prerequisite and pitfalls.
