@@ -42,11 +42,13 @@ enum DashState {
 @export_group("Dash")
 ## Every dash lasts exactly this long, so wind (distance) is what sets speed.
 @export var dash_duration: float = 0.1
-@export var dash_min_distance: float = 180.0
-@export var dash_max_distance: float = 420.0
+## The roof. Distance starts at 0 and eases up to this.
+@export var dash_max_distance: float = 520.0
+## 0 = linear wind to distance, 1 = the full S-curve (flat at both ends).
+@export_range(0.0, 1.0) var wind_curve_strength: float = 1.0
 ## Time spent holding dash to fill the wind meter and reach max distance.
 @export var dash_wind_time: float = 0.9
-@export var dash_min_damage: int = 2
+@export var dash_min_damage: int = 1
 @export var dash_max_damage: int = 4
 @export var dash_cooldown: float = 0.12
 @export var dash_invulnerability_after: float = 0.05
@@ -257,6 +259,15 @@ func _update_wind(delta: float) -> void:
 	_update_wind_visuals()
 
 
+## Smooth S-curve: 0 at zero wind, 1 at full wind, flat at both ends.
+func wind_curve() -> float:
+	return _wind - wind_curve_strength * sin(TAU * _wind) / TAU
+
+
+func dash_distance() -> float:
+	return dash_max_distance * wind_curve()
+
+
 func _update_wind_visuals() -> void:
 	var active: bool = _winding or _dash_buffer > 0.0
 
@@ -276,7 +287,7 @@ func _update_aim_marker(active: bool) -> void:
 	if not active:
 		return
 
-	var distance: float = lerpf(dash_min_distance, dash_max_distance, _wind)
+	var distance: float = dash_distance()
 	var origin: Vector2 = global_position
 	var endpoint: Vector2 = origin + Vector2.RIGHT.rotated(rotation) * distance
 	_aim_marker.global_position = endpoint
@@ -396,8 +407,8 @@ func _emit_dash_ghosts(distance: float) -> void:
 
 
 func _start_dash() -> void:
-	var ratio: float = _wind
-	var distance: float = lerpf(dash_min_distance, dash_max_distance, ratio)
+	var ratio: float = wind_curve()
+	var distance: float = dash_distance()
 	_dash_speed = distance / maxf(dash_duration, 0.001)
 	_dash_damage = roundi(lerpf(float(dash_min_damage), float(dash_max_damage), ratio))
 

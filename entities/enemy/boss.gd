@@ -34,6 +34,7 @@ func _init() -> void:
 	knockback_scale = 0.35
 	execute_ratio = 2.0
 	perfect_ratio = 1.1
+	body_ratio = 0.6
 	execute_breaks_combo = true
 
 
