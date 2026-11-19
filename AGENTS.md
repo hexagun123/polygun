@@ -11,13 +11,13 @@
 
 ## change / edit mode
 
-- edit directly only for small fixes, otherwise use sub-agents as much as possible
+- edit directly for small fixes, assign sub-agents for tasks that have no-overlaps, such as 2 seperate files.
 - don't over engineer code that is not nessesary.
 - upon completing a fix or a feature, check the diff and ask the user for whether to commit or not
-- modify @CURRENT_STATE.md when ever needed
+- Read CURRENT_STATE.md after finishing feature or fixing bugs, update if it differs from current game state.
 - Use Godot 4.x GDScript only
 - if something is risky to change, such as possible breaks in "uid://", ask the user to change it in the godot editor
-- try to limit the access to godot editor itself as it is really slow
+- Ask the user to open Godot when uid:///.tscn edits or final playtesting require it.
 - always check for code quality, including broken path and type errors after completing features
 
 ## git
