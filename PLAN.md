@@ -5,19 +5,19 @@
 - Current work is tracked in `CURRENT_STATE.md`; this file holds the roadmap and the finalized dash plan.
 - Repo instructions (`AGENTS.md`): concise responses; change mode uses sub-agents except for small fixes; Godot 4.x GDScript only; ask the user to make risky `uid://` changes in the Godot editor; verify broken paths and type errors after features.
 - No build/test/lint/CI scripts. Verification means opening the project in Godot and running the main scene.
-- Main scene: `uid://cjmff0wlmncdk` = `world/testing_arena.tscn`. Renderer is `gl_compatibility`. No autoloads; `autoload/` and `ui/` are empty placeholders.
-- Input actions exist in `project.godot` (`move_left/right/up/down`, `dash` = LMB).
+- Main scene: `uid://cjmff0wlmncdk` = `world/testing_arena.tscn`. Renderer is `gl_compatibility`. No autoloads; `autoload/` is an empty placeholder. `ui/` is no longer empty: it holds the code-built HUD (`ui/hud.gd`).
+- Input actions exist in `project.godot` (`move_left/right/up/down`, `dash` = LMB, `restart` = R).
 - Scripts have `.gd.uid` sidecars. Preserve UIDs; have the user change UID-sensitive data in the editor.
 
 ## Progress — 2026-11-19
 
-Shooting milestone is implemented:
+Shooting milestone was implemented (historical — superseded by the dash plan; the gun is gone and `projectile.gd` is unreferenced):
 
 - Mouse aim + hold-to-fire (`fire` = LMB), `Projectile` moved by raycast so it can't tunnel through arena walls; generated shot tone.
 - `Enemy` chaser (5-sided, 3 HP, layer 1) chases the `&"player"` group and deals contact damage.
 - Hit feedback: white flash, generated noise impact, directional knockback; death shard burst via `DeathBurst`.
-- Minimal player health: 3 HP, 0.7 s damage cooldown, red flash, respawn at origin.
-- `EnemySpawner` in `testing_arena.tscn` spawns 3 enemies at 260–700 px from origin.
+- Minimal player health: 3 HP, 0.7 s damage cooldown, red flash, respawn at origin (later replaced in Stage B by 5 HP + `died`/game over, no respawn).
+- `EnemySpawner` in `testing_arena.tscn` spawned 3 enemies at 260–700 px from origin (removed in Stage B).
 - Generated audio moved to `audio/sfx.gd` (`Sfx.make_tone`, `Sfx.make_noise`).
 - Verified with headless Godot 4.7.2: project runs clean, and a smoke harness confirmed projectile damage, enemy death + burst, and player invulnerability. Still run the main scene once to tune feel.
 
@@ -115,7 +115,7 @@ Acceptance (verified with a temporary headless Godot 4.7.2 harness, then removed
 
 ### Verification
 
-- Manual, in Godot: run the main scene, play Stage A against the existing 3 enemies, then the wave slice, then combo/bullet time. No CLI tests exist.
+- Manual, in Godot: run the main scene and play the dash + wave slice (3 / 5 / 7 enemies → boss → win/lose). Combo and bullet time are still unbuilt. No CLI tests exist.
 
 ## User's vision
 

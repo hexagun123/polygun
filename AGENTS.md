@@ -29,10 +29,11 @@
 - Godot 4.x 2D game (working `project.godot` targets 4.7); main scene is `uid://cjmff0wlmncdk` = `world/testing_arena.tscn`.
 - No build, test, lint, or CI scripts exist. Verification means opening the project in Godot and running the main scene; don't invent CLI commands.
 - Renderer is `gl_compatibility` on both desktop and mobile; treat that as intentional.
-- No autoloads are configured. `autoload/` and `ui/` are empty placeholders.
+- No autoloads are configured; `autoload/` is an empty placeholder. `ui/` holds the code-built HUD (`ui/hud.gd`).
 
 ## Ownership
 
 - `entities/polygon/`: reusable procedural `Polygon` base (`CharacterBody2D`) driven by `sides`, `radius`, `color`.
 - `entities/player/`: `Player` subclass, movement and smoothed `Camera2D`.
-- `world/`: main arena scene, grid drawing and static walls.
+- `world/`: main arena scene, grid drawing, static walls and the wave director.
+- `ui/`: code-built HUD (HP pips, wave counter, boss bar, win/lose overlay).

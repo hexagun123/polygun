@@ -35,7 +35,7 @@ No pause menu or controller/touch input.
 ### `entities/polygon/polygon.gd` — `Polygon` base
 - `CharacterBody2D` that builds its own visuals at runtime: `Polygon2D` fill, `Line2D` outline (lightened 40 %), and `CollisionPolygon2D`.
 - Exports: `sides` (3–64), `radius`, `color`, `outline_width`.
-- Vertices start at +X so `look_at()` points the flat "front" at the target.
+- Vertices start at +X, so `look_at()` aims that first vertex (a corner) at the target.
 - Rebuild only happens in `_ready()`; changing exports at runtime does not refresh geometry.
 
 ### `entities/player/player.gd` — `Player` (extends `Polygon`)
@@ -52,7 +52,7 @@ No pause menu or controller/touch input.
 - Camera2D with smoothing (speed 10) clamped to ±1536 px (matches arena half-size).
 - Health 5; `take_damage(amount, from_position)`:
   - 0.7 s invulnerability window, red flash for 0.12 s; emits `health_changed`.
-  - At 0 HP: sets `_dead`, cancels the dash, dims the body/outline, stops processing and emits `died`. The wave director turns that into game over. No auto-respawn.
+  - At 0 HP: sets `_dead`, cancels the dash, dims the body/outline, early-returns from `_physics_process` and emits `died`. The wave director turns that into game over. No auto-respawn.
 
 ### `entities/projectile/projectile.gd` — `Projectile` (legacy, unreferenced)
 - Plain `Node2D`, manually drawn as a small triangle + outline; not a physics body.
@@ -69,12 +69,12 @@ No pause menu or controller/touch input.
 - Movement is a hook: base `_physics_process` calls `_get_desired_velocity(delta, player)` (default: chase at `speed`); subclasses override only that hook. `face_target = false` freezes facing during charges.
 - Contact damage is a distance check (`enemy.radius + player.radius`), not a physics hit: 1 damage.
 - Health 3. On hit: white flash 0.08 s, knockback impulse 260 px/s × `knockback_scale` (1.0 by default) decaying at 900 px/s², noise SFX, `health_changed`.
-- On death: emits `died`, spawns a `DeathBurst` at its position, plays the impact through a temporary sibling player node (so the sound survives `queue_free`), then frees itself.
+- On death: emits `died`, spawns a `DeathBurst` at its position, plays the impact through a temporary sibling `AudioStreamPlayer` (so the sound survives `queue_free`), then frees itself.
 
 ### `entities/enemy/boss.gd` — `Boss` (extends `Enemy`)
 - Hexagon, radius 48, magenta, outline width 3; HP 20, contact damage 2, chase speed 90 px/s, knockback scale 0.35.
 - State machine driven from `_get_desired_velocity()` only:
-  - `CHASE` at 90 px/s. After a ~2.5 s cooldown, if the player is within 500 px → `WINDUP`.
+  - `CHASE` at 90 px/s. After a cooldown (1.0 s on spawn, then ~2.5 s), if the player is within 500 px → `WINDUP`.
   - `WINDUP` 0.45 s stationary, faces the player, then locks a charge direction.
   - `CHARGE` ~600 px/s in the locked direction for 0.4 s; ends early on wall contact (`get_slide_collision_count()`); `face_target` is off so it cannot turn.
   - `RECOVER` 0.7 s stationary, then back to chase with a fresh cooldown.
@@ -82,7 +82,7 @@ No pause menu or controller/touch input.
 
 ### `world/wave_director.gd` — `WaveDirector`
 - Group `&"director"`; signals `wave_changed(wave, total)`, `boss_spawned(boss)`, `run_finished(victory)`.
-- Spawns waves of 3 / 5 / 7 enemies at once on a 450–700 px ring around the player, evenly spaced with angle jitter; positions are clamped to ±1400, with an inward fallback so nothing lands on the player.
+- Spawns waves of 3 / 5 / 7 enemies at once on a 450–700 px ring around the player, evenly spaced with angle jitter; positions are clamped to ±1400, with an inward fallback that keeps at least 320 px clearance so nothing lands on the player.
 - Waits 2 s between waves. Clearing wave 3 spawns the boss 650 px from the player.
 - Tracks alive enemies via their `died` signal; a player `died` ends the run in defeat, boss `died` ends it in victory.
 - After either end, emits `run_finished` and pauses the tree 0.8 s later (so the death burst/overlay can show).
@@ -131,9 +131,9 @@ TestingArena (Node2D)
 | Charging | movement ×0.35, preview length = dash distance |
 | Enemy | radius 20, speed 140, HP 3, contact damage 1 |
 | Knockback | 260 px/s impulse, 900 px/s² decay, ×`knockback_scale` |
-| Waves | 3 / 5 / 7 enemies, ring 450–700 px, clamp ±1400, 2 s intermission |
+| Waves | 3 / 5 / 7 enemies, ring 450–700 px, clamp ±1400, 320 px clearance, 2 s intermission |
 | Boss | radius 48, HP 20, contact damage 2, speed 90, charge 600 px/s |
-| Boss timing | 2.5 s cooldown, 0.45 s windup, 0.4 s charge, 0.7 s recover, 500 px trigger |
+| Boss timing | 1 s initial cooldown, then 2.5 s cooldown, 0.45 s windup, 0.4 s charge, 0.7 s recover, 500 px trigger |
 | End of run | overlay immediately, tree paused after 0.8 s |
 | Camera | smoothing 10, limits ±1536 |
 
