@@ -17,10 +17,11 @@ Snapshot of what the game actually does today, written as planning input. Comple
 4. The dash lasts 0.1 s and wind maps distance 180–420 px, so distance sets speed (1800–4200 px/s) and damage (2–4). It passes through enemies, damages each one once per dash along the travelled segment, and stops early on walls. I-frames cover the dash + 0.05 s.
 5. A dash that crosses an enemy and ends within 1.5 × its radius of its centre **executes** it: ×3 damage and +1 combo. Ending the dash inside the enemy costs the player 1 HP instead. The combo breaks on any dash that executes nothing, after 1 s without an execute, or when the player takes a hit.
 6. Bosses execute at 2 × radius, and a boss execute resets the combo — unless the hit lands inside the tighter perfect band (1.1 × radius) or kills it.
-7. Enemies flash white, get knocked back, and burst into shards when killed.
-8. Touching an enemy costs 1 HP, the boss costs 2 (player has 5). At 0 HP the run ends in game over.
-9. Clearing waves 1–3 (3 / 5 / 7 enemies, 2 s between waves) spawns the placeholder boss. Killing it wins the run.
-10. 0.8 s after a win or loss the tree pauses and the HUD shows an overlay; press `R` to restart from wave 1.
+7. Every combo point slows the world logarithmically (`1 - 0.15·ln(1+combo)`) while the player keeps acting in real time. A hit taken **breaks the combo instead of dealing damage**, and the break also destroys hostile projectiles and cancels attacks.
+8. Enemies flash white, get knocked back, and burst into shards when killed.
+9. Touching an enemy costs 1 HP, the boss costs 2 (player has 5). At 0 HP the run ends in game over.
+10. Clearing waves 1–3 (3 / 5 / 7 enemies, 2 s between waves) spawns the placeholder boss. Killing it wins the run.
+11. 0.8 s after a win or loss the tree pauses and the HUD shows an overlay; press `R` to restart from wave 1.
 
 ## Controls
 
@@ -50,6 +51,7 @@ No pause menu or controller/touch input.
   - Moves with `move_and_slide`, ends early on wall contact. Enemies get temporary collision exceptions so the player passes through them.
   - Hits are resolved geometrically as the dash travels, then **classified once when the dash ends**: ending inside the body (`d ≤ body_ratio·radius`) costs the player 1 HP (bypassing dash i-frames); crossing the body and ending within `execute_ratio·radius` executes for ×3 damage; everything else takes a normal hit.
   - Execution builds the combo (`+1`), which breaks on a non-executing dash, after 1 s without an execute, or when the player takes a hit. Emits `combo_changed(combo)`.
+  - Combo = bullet time and shield: `Engine.time_scale = 1 - 0.15·ln(1+combo)` through `TimeControl`, while every player timer and its movement are compensated by `1 / bullet_time_factor`, so only the world slows. Any hit taken while combo > 0 is absorbed by the chain (no HP loss) and clears hostile projectiles via the `&"hostile_projectiles"` group hook.
   - I-frames for dash duration + 0.05 s; 0.12 s cooldown after dash ends. Noise whoosh on dash start.
   - Presses made while dashing / cooling down are buffered for 0.2 s instead of being dropped.
   - Dash end keeps 18 % of dash speed as momentum that decays at 2800 px/s², so landing slides instead of stopping dead.
@@ -82,6 +84,10 @@ No pause menu or controller/touch input.
 - HP pips (per `max_health`), `WAVE n / 3` label, `COMBO n` counter top-right (hidden at zero), boss bar driven by boss `health_changed`.
 - End overlay (`VICTORY` / `GAME OVER` + "Press R to restart"). `R` unpauses and reloads the scene.
 - Binds via groups (`&"player"`, `&"director"`) deferred; seeds initial wave from director state.
+
+### `entities/fx/time_control.gd` — `TimeControl`
+- Static single writer of `Engine.time_scale`: `bullet_time_factor * hitstop_factor` (`hitstop_factor` reserved for Stage 4).
+- `set_bullet_time`, `set_hitstop`, `reset()`. Static state survives scene reloads, so `reset()` is called by the director's `_begin()` and by the HUD on win/lose and `R` restart.
 
 ### `entities/fx/death_burst.gd` — `DeathBurst`
 - 10 `Line2D` shards flying outward (~320 px/s), decelerating, fading over 0.35 s, then freed.
@@ -120,15 +126,16 @@ TestingArena (Node2D)
 | Waves | 3/5/7, ring 450–700, clamp ±1400, clearance 320, intermission 2 s |
 | Boss | hexagon r48, HP 20, contact 2, speed 90, charge 600; windup 0.45, charge 0.4, recover 0.7, cooldown 2.5 s (1.0 initial), trigger 500 px, knockback ×0.35, execute 2.0·s, perfect 1.1·s |
 | Combo | 1 s window, execute damage ×3, boss execute resets the chain |
+| Bullet time | `1 - 0.15·ln(1+combo)`: 0.896 at combo 1, 0.792 at 3, 0.64 at 10 |
 | End | overlay on end, pause after 0.8 s |
 
 ## Not implemented (gaps relevant to the plan)
 
-- No bullet time yet (Stage 3), no damage multiplier from combo.
-- No feel pass (hit-stop, shake, ghosts, damage numbers, zoom punch, hurt feedback; Stage 4).
-- No rebalance pass (Stage E), upgrades/inheritance, currency, level/arena pool, or score.
+- No combo damage multiplier (position is the reward instead).
+- No feel pass yet (hit-stop, shake, ghosts, damage numbers, zoom punch, hurt feedback; Stage 4).
+- No rebalance pass (Stage 7), upgrades/inheritance, currency, level/arena pool, or score.
 - No pause menu; `R` only on win/lose overlay.
-- One enemy type + placeholder boss; dash-only attack (`projectile.gd` unreferenced).
+- One enemy type + placeholder boss; dash-only attack (`projectile.gd` unreferenced), no hostile projectiles.
 - No screen shake, particles beyond line shards, hit-stop, or damage numbers.
 - No mobile/touch controls despite mobile renderer.
 - No pickups. `Polygon` visuals not rebuildable at runtime.

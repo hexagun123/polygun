@@ -22,6 +22,7 @@ The dash combat design was reworked after playtesting: the old charge-up read as
 - **Stage 0 — Responsiveness** — ✅ done (headless-verified; camera feel still needs a manual run).
 - **Stage 1 — Instant dash + wind** — ✅ done (headless-verified; wind feel still needs a manual run).
 - **Stage 2 — Execute + combo** — ✅ done (headless-verified; band feel still needs a manual run).
+- **Stage 3 — Bullet time + combo shield** — ✅ done (headless-verified; feel still needs a manual run).
 
 ## Locked design — dash combat v5
 
@@ -145,6 +146,15 @@ Acceptance: verified headless — execute kills a 3 HP enemy and adds combo; a n
 - Player compensates with `delta / bullet_time_factor` only.
 - Combo shield: a hit clears the combo, deals no damage, destroys projectiles and cancels attacks.
 - Reset to 1.0 on death, win, restart and scene load.
+
+### Stage 3 — Bullet time (done)
+
+- [x] `TimeControl` authority owns `Engine.time_scale` (bullet time × hit-stop, hit-stop reserved for Stage 4).
+- [x] Combo-derived logarithmic slow, player compensated with `1 / bullet_time_factor` for timers and movement.
+- [x] Combo shield: a hit clears the combo, deals no damage, destroys hostile projectiles and cancels attacks.
+- [x] Reset to 1.0 on death, win, `R` restart and director `_begin()`.
+
+Acceptance: verified headless — combo 1/3 produce 0.896/0.792 time scale; the player still crosses 150 px in 0.5 s real time at 0.79; a hit with a combo costs no HP but clears the chain; without a combo the same hit costs 1 HP. Still needs a manual run.
 
 ### Stage 4 — Feel-lite (core 6)
 

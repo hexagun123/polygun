@@ -1,6 +1,8 @@
 class_name Hud
 extends CanvasLayer
 
+const TimeControlScript = preload("res://entities/fx/time_control.gd")
+
 const MARGIN: float = 16.0
 const PIP_SIZE: Vector2 = Vector2(22.0, 12.0)
 const PIP_GAP: int = 4
@@ -164,6 +166,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if viewport != null:
 			viewport.set_input_as_handled()
 		get_tree().paused = false
+		TimeControlScript.reset()
 		get_tree().reload_current_scene()
 
 
@@ -204,6 +207,8 @@ func _on_boss_health_changed(current: int, maximum: int) -> void:
 
 
 func _on_run_finished(victory: bool) -> void:
+	# Static time state outlives the scene; never leave a slow-mo behind.
+	TimeControlScript.reset()
 	_end_title.text = "VICTORY" if victory else "GAME OVER"
 	_boss_box.visible = false
 	_end_overlay.visible = true

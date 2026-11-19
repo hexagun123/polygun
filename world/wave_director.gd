@@ -15,6 +15,7 @@ enum State {
 
 const EnemyScript = preload("res://entities/enemy/enemy.gd")
 const BossScript = preload("res://entities/enemy/boss.gd")
+const TimeControlScript = preload("res://entities/fx/time_control.gd")
 
 const WAVE_COUNTS: Array[int] = [3, 5, 7]
 const INTERMISSION_TIME: float = 2.0
@@ -56,6 +57,7 @@ func _ready() -> void:
 
 
 func _begin() -> void:
+	TimeControlScript.reset()
 	var player: Node = get_tree().get_first_node_in_group(&"player")
 	if player != null and player.has_signal(&"died"):
 		player.died.connect(_on_player_died)

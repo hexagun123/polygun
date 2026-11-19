@@ -6,6 +6,7 @@ signal died
 signal combo_changed(combo: int)
 
 const SfxScript = preload("res://audio/sfx.gd")
+const TimeControlScript = preload("res://entities/fx/time_control.gd")
 
 const HIT_FLASH_TIME: float = 0.12
 const WIND_PREVIEW_COLOR: Color = Color(0.55, 1.0, 0.75)
@@ -78,6 +79,8 @@ var _dash_crossings: Dictionary = {}
 var _dash_executed: bool = false
 var _combo_timer: float = 0.0
 var _dash_buffer: float = 0.0
+## 1 / Engine.time_scale, so the player keeps acting in real time.
+var _inv_time_scale: float = 1.0
 var _momentum: Vector2 = Vector2.ZERO
 var _dash_exceptions: Array[Node] = []
 var _wind_preview: Line2D
@@ -136,17 +139,22 @@ func _physics_process(delta: float) -> void:
 	if _dead:
 		return
 
-	_invulnerability_timer = maxf(_invulnerability_timer - delta, 0.0)
-	_cooldown_timer = maxf(_cooldown_timer - delta, 0.0)
-	_dash_buffer = maxf(_dash_buffer - delta, 0.0)
+	# Bullet time slows the world, not the player: undo the global time scale
+	# for every timer here and for movement.
+	_inv_time_scale = 1.0 / maxf(TimeControlScript.bullet_time_factor, 0.001)
+	var dt: float = delta * _inv_time_scale
+
+	_invulnerability_timer = maxf(_invulnerability_timer - dt, 0.0)
+	_cooldown_timer = maxf(_cooldown_timer - dt, 0.0)
+	_dash_buffer = maxf(_dash_buffer - dt, 0.0)
 	if Input.is_action_just_pressed(&"dash"):
 		_dash_buffer = DASH_BUFFER_TIME
 	if combo > 0:
-		_combo_timer = maxf(_combo_timer - delta, 0.0)
+		_combo_timer = maxf(_combo_timer - dt, 0.0)
 		if _combo_timer <= 0.0:
 			_break_combo()
 	if _flash_timer > 0.0:
-		_flash_timer = maxf(_flash_timer - delta, 0.0)
+		_flash_timer = maxf(_flash_timer - dt, 0.0)
 		if _flash_timer <= 0.0 and body != null:
 			body.color = _base_color
 
@@ -154,22 +162,22 @@ func _physics_process(delta: float) -> void:
 	look_at(get_global_mouse_position())
 
 	if _dash_state == DashState.DASHING:
-		_update_dash(delta)
-		_update_camera(delta)
+		_update_dash(delta, dt)
 		return
 
-	_update_wind(delta)
+	_update_wind(dt)
 
 	var move_input: Vector2 = Input.get_vector(&"move_left", &"move_right", &"move_up", &"move_down")
-	velocity = move_input * speed + _momentum
+	var ground_velocity: Vector2 = move_input * speed + _momentum
+	velocity = ground_velocity * _inv_time_scale
 	move_and_slide()
-	_update_momentum(delta)
+	_update_momentum(dt)
 
 	if _cooldown_timer <= 0.0 and _dash_buffer > 0.0:
 		_dash_buffer = 0.0
 		_start_dash()
 
-	_update_camera(delta)
+	_update_camera(dt, ground_velocity)
 
 
 ## Wind builds only while holding; it persists after release and is spent by
@@ -224,17 +232,17 @@ func _update_momentum(delta: float) -> void:
 	_momentum = _momentum.move_toward(Vector2.ZERO, momentum_decay * delta)
 
 
-func _update_camera(delta: float) -> void:
-	var look_ahead: Vector2 = velocity * CAMERA_LOOK_AHEAD_PER_SPEED
+func _update_camera(dt: float, motion: Vector2) -> void:
+	var look_ahead: Vector2 = motion * CAMERA_LOOK_AHEAD_PER_SPEED
 	if look_ahead.length_squared() > CAMERA_LOOK_AHEAD * CAMERA_LOOK_AHEAD:
 		look_ahead = look_ahead.normalized() * CAMERA_LOOK_AHEAD
 
 	# Frame-rate independent smoothing toward the lead position.
-	camera.position = camera.position.lerp(look_ahead, 1.0 - exp(-CAMERA_LOOK_SMOOTHING * delta))
+	camera.position = camera.position.lerp(look_ahead, 1.0 - exp(-CAMERA_LOOK_SMOOTHING * dt))
 
 	# Glue the camera to the player during a dash so it cannot fall behind.
-	var dash_ratio: float = clampf(velocity.length() / maxf(speed * 3.0, 1.0), 0.0, 1.0)
-	camera.position_smoothing_speed = lerpf(CAMERA_BASE_SMOOTHING, CAMERA_DASH_SMOOTHING, dash_ratio)
+	var dash_ratio: float = clampf(motion.length() / maxf(speed * 3.0, 1.0), 0.0, 1.0)
+	camera.position_smoothing_speed = lerpf(CAMERA_BASE_SMOOTHING, CAMERA_DASH_SMOOTHING, dash_ratio) * _inv_time_scale
 
 
 func _start_dash() -> void:
@@ -276,13 +284,13 @@ func _start_dash() -> void:
 		dash_audio.play()
 
 
-func _update_dash(delta: float) -> void:
+func _update_dash(delta: float, dt: float) -> void:
 	var from: Vector2 = global_position
 
 	# Step by remaining distance, not by a timer, so the dash lands exactly on
 	# its wind distance. A timer overshoots by a whole frame at 4200 px/s,
 	# which is wider than the execute bands.
-	var step: float = minf(_dash_speed * delta, _dash_remaining)
+	var step: float = minf(_dash_speed * dt, _dash_remaining)
 	velocity = _dash_direction * (step / maxf(delta, 0.0001))
 	move_and_slide()
 	_dash_remaining -= step
@@ -293,12 +301,10 @@ func _update_dash(delta: float) -> void:
 
 	# Enemies have collision exceptions during the dash, so any slide hit is a
 	# wall: end the dash early on contact.
-	if get_slide_collision_count() > 0:
+	if get_slide_collision_count() > 0 or _dash_remaining <= 0.0001:
 		_end_dash()
-		return
 
-	if _dash_remaining <= 0.0001:
-		_end_dash()
+	_update_camera(dt, _dash_direction * _dash_speed)
 
 
 func _track_dash_crossings(from: Vector2, to: Vector2) -> void:
@@ -378,6 +384,7 @@ func _execute(enemy: Enemy, end_distance: float, size: float) -> void:
 func _add_combo() -> void:
 	combo += 1
 	_combo_timer = COMBO_WINDOW
+	_update_bullet_time()
 	combo_changed.emit(combo)
 
 
@@ -386,7 +393,25 @@ func _break_combo() -> void:
 		return
 	combo = 0
 	_combo_timer = 0.0
+	_update_bullet_time()
 	combo_changed.emit(0)
+
+
+## The world slows logarithmically with the chain; the player does not slow,
+## because every player timer and movement is compensated by _inv_time_scale.
+func _update_bullet_time() -> void:
+	var target: float = 1.0
+	if combo > 0:
+		target = 1.0 - 0.15 * log(1.0 + float(combo))
+	TimeControlScript.set_bullet_time(target)
+
+
+## The combo shield may destroy projectiles and cancel attacks -nothing else.
+## Projectiles do not exist yet; this is the hook Stage 5 fills in.
+func _clear_hostile_hazards() -> void:
+	for node: Node in get_tree().get_nodes_in_group(&"hostile_projectiles"):
+		if is_instance_valid(node):
+			node.queue_free()
 
 
 func _end_dash() -> void:
@@ -441,6 +466,17 @@ func _take_body_damage(from_position: Vector2) -> void:
 
 
 func _apply_damage(amount: int, _from_position: Vector2) -> void:
+	# A live execution chain is a shield: it eats the hit and clears hostile
+	# projectiles and attacks, and the chain is what you lose.
+	if combo > 0:
+		_invulnerability_timer = damage_cooldown
+		_flash_timer = HIT_FLASH_TIME
+		if body != null:
+			body.color = Color(0.8, 1.0, 1.0)
+		_clear_hostile_hazards()
+		_break_combo()
+		return
+
 	health -= amount
 	_invulnerability_timer = damage_cooldown
 	_flash_timer = HIT_FLASH_TIME
@@ -460,6 +496,7 @@ func _die() -> void:
 	_dead = true
 	health = 0
 	_break_combo()
+	TimeControlScript.reset()
 	_cancel_dash()
 	velocity = Vector2.ZERO
 	if body != null:
