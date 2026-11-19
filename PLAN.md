@@ -20,6 +20,7 @@ Historical and superseded (see git history and `CURRENT_STATE.md` for detail):
 The dash combat design was reworked after playtesting: the old charge-up read as laggy. Everything below replaces the old Stage A/F/C/D plan.
 
 - **Stage 0 — Responsiveness** — ✅ done (headless-verified; camera feel still needs a manual run).
+- **Stage 1 — Instant dash + wind** — ✅ done (headless-verified; wind feel still needs a manual run).
 
 ## Locked design — dash combat v5
 
@@ -109,15 +110,15 @@ Millisecond-level work that is independent of the design above; these all surviv
 
 Acceptance: verified headless — a press during cooldown starts a charge once the cooldown ends, dash end carries 217 px/s of momentum on a tap, and the project runs clean at 120 ticks/s. Camera feel still needs a manual run.
 
-### Stage 1 — Instant dash + wind
+### Stage 1 — Instant dash + wind (done)
 
-- Press-to-dash immediately, wind 0→1 over 0.9 s persisting between dashes, movement never slowed.
-- Fixed 0.1 s duration; distance 180→420; speed-based damage.
-- Replace the charge state machine (`READY` / `CHARGING` / `DASHING`) with a wind value + dash/cooldown states.
-- Path-based resolution: the dash segment is known at launch, so hits resolve geometrically rather than by per-frame circle queries.
-- Dash preview line shows the stored wind distance while held.
+- [x] Press-to-dash immediately, wind 0→1 over 0.9 s persisting between dashes, movement never slowed.
+- [x] Fixed 0.1 s duration; distance 180→420; speed-based damage 2→4.
+- [x] Charge state machine replaced by `_wind` + `READY` / `DASHING`.
+- [x] Path-based resolution: hits resolve against the segment travelled each physics frame, not per-frame point queries.
+- [x] Wind preview line shows the stored distance while held.
 
-Acceptance: tap dashes at min distance instantly; holding to full wind dashes 420 px; nothing clamps movement; no tunneling at max speed.
+Acceptance: verified headless — press dashes instantly at ~1800 px/s with no charge delay; winding keeps full 300 px/s movement; full wind gives 4200 px/s and 4 damage; an enemy on the path takes the hit. Still needs a manual run to tune wind/distance feel.
 
 ### Stage 2 — Execute + combo
 

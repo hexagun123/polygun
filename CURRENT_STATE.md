@@ -13,8 +13,8 @@ Snapshot of what the game actually does today, written as planning input. Comple
 
 1. Spawn at arena centre as a green triangle.
 2. `WaveDirector` starts wave 1: 3 red pentagons spawn 450–700 px around the player and chase.
-3. Aim with the mouse. Hold LMB to charge a dash (movement ×0.35, preview line grows), release to dash toward the cursor.
-4. The dash passes through enemies, damages each one once per dash, and stops early on walls. I-frames cover the dash + 0.05 s.
+3. Aim with the mouse. Press LMB to dash instantly toward the cursor; hold LMB to wind the *next* dash (preview line grows; movement is never slowed). The wind is spent by the dash.
+4. The dash lasts 0.1 s and wind maps distance 180–420 px, so distance sets speed (1800–4200 px/s) and damage (2–4). It passes through enemies, damages each one once per dash along the travelled segment, and stops early on walls. I-frames cover the dash + 0.05 s.
 5. Enemies flash white, get knocked back, and burst into shards when killed.
 6. Touching an enemy costs 1 HP, the boss costs 2 (player has 5). At 0 HP the run ends in game over.
 7. Clearing waves 1–3 (3 / 5 / 7 enemies, 2 s between waves) spawns the placeholder boss. Killing it wins the run.
@@ -26,7 +26,7 @@ Snapshot of what the game actually does today, written as planning input. Comple
 | --- | --- |
 | Move | WASD or arrow keys (`move_left/right/up/down`) |
 | Aim | Mouse position (player faces cursor every physics frame) |
-| Dash | Hold LMB to charge, release to dash (`dash`) |
+| Dash | Press LMB to dash; hold to wind the next dash (`dash`) |
 | Restart | `R` (`restart`) — only on the win/lose overlay |
 
 No pause menu or controller/touch input.
@@ -40,13 +40,14 @@ No pause menu or controller/touch input.
 
 ### `entities/player/player.gd` — `Player` (extends `Polygon`)
 - Triangle, radius 24, green; collision layer 2, mask 1. Group `&"player"`. Signals: `health_changed(current, maximum)`, `died`.
-- Speed 300 px/s, mouse-facing aim (aim stays free while charging).
-- Dash state machine: `READY` / `CHARGING` / `DASHING`.
-  - Charge up to 1.0 s: movement ×0.35, preview `Line2D` grows, outline widens/brightens; rising-pitch tone.
-  - Release: dash toward cursor. Charge 0→1 maps distance 150→520 px, speed 1200→1900 px/s, damage 2→3.
+- Speed 300 px/s, mouse-facing aim (aim stays free while winding).
+- Dash state machine: `READY` / `DASHING` (no charge state; pressing always dashes).
+  - Wind: holding LMB fills `_wind` 0→1 over 0.9 s. It persists after release and is spent by the dash, so tap = 180 px and a held wind = up to 420 px. Movement is never slowed while winding.
+  - Dash lasts 0.1 s; distance = 180→420 px, speed = distance / 0.1 (1800→4200 px/s), damage = 2→4.
+  - Preview `Line2D` shows the stored wind distance; outline widens/brightens with wind; rising tone while holding.
   - Moves with `move_and_slide`, ends early on wall contact. Enemies get temporary collision exceptions so the player passes through them.
-  - Circle shape query (layer 1, radius 28) damages each enemy once per dash (instance-id set).
-  - I-frames for dash duration + 0.05 s; 0.25 s cooldown after dash ends. Noise whoosh on release.
+  - Hits are resolved geometrically against the segment travelled each physics frame (closest point on segment to the enemy centre), so nothing tunnels at 4200 px/s. Each enemy takes damage once per dash (instance-id set).
+  - I-frames for dash duration + 0.05 s; 0.12 s cooldown after dash ends. Noise whoosh on dash start.
   - Presses made while dashing / cooling down are buffered for 0.2 s instead of being dropped.
   - Dash end keeps 18 % of dash speed as momentum that decays at 2800 px/s², so landing slides instead of stopping dead.
 - Camera2D with smoothing (10, boosted to 55 while dashing) clamped to ±1536, plus a movement-direction look-ahead (45 px at walking speed, capped at 90 px).
@@ -108,7 +109,7 @@ TestingArena (Node2D)
 | --- | --- |
 | Arena | 3072×3072, 64 px grid, limits ±1536 |
 | Player | radius 24, speed 300, HP 5, damage i-frames 0.7 s, physics 120 Hz |
-| Dash | charge 1.0 s, distance 150–520, speed 1200–1900, damage 2–3, cooldown 0.25 s, i-frames dash+0.05 s, hit radius 28, move ×0.35 while charging |
+| Dash | wind 0→1 over 0.9 s (spent on dash), distance 180–420, duration 0.1 s → speed 1800–4200, damage 2–4, cooldown 0.12 s, i-frames dash+0.05 s |
 | Feel | input buffer 0.2 s, momentum carry 18 % (decay 2800), camera look-ahead 45 px walk / 90 px cap, smoothing 10 → 55 |
 | Enemy | radius 20, speed 140, HP 3, contact 1, knockback 260/900 |
 | Waves | 3/5/7, ring 450–700, clamp ±1400, clearance 320, intermission 2 s |
