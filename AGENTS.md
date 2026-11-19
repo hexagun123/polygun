@@ -14,6 +14,7 @@
 - edit directly only for small fixes, otherwise use sub-agents as much as possible
 - don't over engineer code that is not nessesary.
 - upon completing a fix or a feature, check the diff and ask the user for whether to commit or not
+- modify @CURRENT_STATE.md when ever needed
 - Use Godot 4.x GDScript only
 - if something is risky to change, such as possible breaks in "uid://", ask the user to change it in the godot editor
 - try to limit the access to godot editor itself as it is really slow
