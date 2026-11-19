@@ -5,6 +5,7 @@ Snapshot of what the game actually does today, written as planning input. Comple
 ## How to run
 
 - Godot 4.7 project, main scene `uid://cjmff0wlmncdk` = `world/testing_arena.tscn`.
+- Physics runs at 120 ticks/s (`project.godot` → `physics/common/physics_ticks_per_second`).
 - Renderer: `gl_compatibility` (desktop + mobile). No build/test/lint scripts, no autoloads.
 - Verification = open project and run the main scene.
 
@@ -46,7 +47,9 @@ No pause menu or controller/touch input.
   - Moves with `move_and_slide`, ends early on wall contact. Enemies get temporary collision exceptions so the player passes through them.
   - Circle shape query (layer 1, radius 28) damages each enemy once per dash (instance-id set).
   - I-frames for dash duration + 0.05 s; 0.25 s cooldown after dash ends. Noise whoosh on release.
-- Camera2D with smoothing (speed 10) clamped to ±1536.
+  - Presses made while dashing / cooling down are buffered for 0.2 s instead of being dropped.
+  - Dash end keeps 18 % of dash speed as momentum that decays at 2800 px/s², so landing slides instead of stopping dead.
+- Camera2D with smoothing (10, boosted to 55 while dashing) clamped to ±1536, plus a movement-direction look-ahead (45 px at walking speed, capped at 90 px).
 - HP 5, 0.7 s damage i-frames, red flash 0.12 s. At 0 HP: sets `_dead`, cancels dash, dims body/outline, early-returns from physics and emits `died` (no auto-respawn). `take_damage` ignores `from_position`.
 
 ### `entities/enemy/enemy.gd` — `Enemy` (extends `Polygon`)
@@ -84,6 +87,7 @@ No pause menu or controller/touch input.
 ### `audio/sfx.gd` — `Sfx`
 - Generates 16-bit mono WAVs at 22050 Hz at runtime (no audio assets).
 - `make_tone(...)` for charge tone; `make_noise(...)` for enemy hits and dash whoosh. Volume is raw int16 amplitude.
+- `cached_tone(...)` / `cached_noise(...)` memoise by parameter key so a sound is generated once per run; `varied_pitch(amount)` returns a random `pitch_scale` so repeated hits do not machine-gun.
 
 ### `entities/projectile/projectile.gd` — legacy, unreferenced
 - Old raycast bullet kept on disk; nothing preloads or spawns it now.
@@ -103,8 +107,9 @@ TestingArena (Node2D)
 | Thing | Value |
 | --- | --- |
 | Arena | 3072×3072, 64 px grid, limits ±1536 |
-| Player | radius 24, speed 300, HP 5, damage i-frames 0.7 s |
+| Player | radius 24, speed 300, HP 5, damage i-frames 0.7 s, physics 120 Hz |
 | Dash | charge 1.0 s, distance 150–520, speed 1200–1900, damage 2–3, cooldown 0.25 s, i-frames dash+0.05 s, hit radius 28, move ×0.35 while charging |
+| Feel | input buffer 0.2 s, momentum carry 18 % (decay 2800), camera look-ahead 45 px walk / 90 px cap, smoothing 10 → 55 |
 | Enemy | radius 20, speed 140, HP 3, contact 1, knockback 260/900 |
 | Waves | 3/5/7, ring 450–700, clamp ±1400, clearance 320, intermission 2 s |
 | Boss | hexagon r48, HP 20, contact 2, speed 90, charge 600; windup 0.45, charge 0.4, recover 0.7, cooldown 2.5 s (1.0 initial), trigger 500 px, knockback ×0.35 |

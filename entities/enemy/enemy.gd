@@ -45,7 +45,7 @@ func _ready() -> void:
 
 	_base_color = color
 	hit_audio = AudioStreamPlayer.new()
-	hit_audio.stream = SfxScript.make_noise(0.06, 9000.0)
+	hit_audio.stream = SfxScript.cached_noise(0.06, 9000.0)
 	add_child(hit_audio)
 
 	health_changed.emit(health, max_health)
@@ -98,6 +98,7 @@ func take_damage(amount: int, hit_direction: Vector2) -> void:
 		_die()
 	elif hit_audio != null:
 		hit_audio.stop()
+		hit_audio.pitch_scale = SfxScript.varied_pitch()
 		hit_audio.play()
 
 
@@ -120,6 +121,7 @@ func _die() -> void:
 		if hit_audio != null:
 			var impact := AudioStreamPlayer.new()
 			impact.stream = hit_audio.stream
+			impact.pitch_scale = SfxScript.varied_pitch()
 			burst_parent.add_child(impact)
 			impact.finished.connect(impact.queue_free)
 			impact.play()

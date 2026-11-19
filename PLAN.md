@@ -2,196 +2,193 @@
 
 ## Status / constraints
 
-- Current work is tracked in `CURRENT_STATE.md`; this file holds the roadmap and the finalized dash plan.
-- Repo instructions (`AGENTS.md`): concise responses; change mode uses sub-agents except for small fixes; Godot 4.x GDScript only; ask the user to make risky `uid://` changes in the Godot editor; verify broken paths and type errors after features.
-- No build/test/lint/CI scripts. Verification means opening the project in Godot and running the main scene.
-- Main scene: `uid://cjmff0wlmncdk` = `world/testing_arena.tscn`. Renderer is `gl_compatibility`. No autoloads; `autoload/` is an empty placeholder. `ui/` is no longer empty: it holds the code-built HUD (`ui/hud.gd`).
-- Input actions exist in `project.godot` (`move_left/right/up/down`, `dash` = LMB, `restart` = R).
-- Scripts have `.gd.uid` sidecars. Preserve UIDs; have the user change UID-sensitive data in the editor.
+- Current work is tracked in `CURRENT_STATE.md`; this file holds the **locked design** and the staged roadmap.
+- Repo instructions (`AGENTS.md`): concise responses; Godot 4.x GDScript only; edit small fixes directly, use sub-agents for non-overlapping multi-file work; ask the user to make `uid://` / `.tscn` changes in the editor; check code quality (paths, types) after features; read `CURRENT_STATE.md` when a feature lands.
+- No build/test/lint/CI scripts. Verification = open the project in Godot and run the main scene. Headless Godot 4.7.2 has been used for smoke checks.
+- Main scene: `uid://cjmff0wlmncdk` = `world/testing_arena.tscn`. Renderer `gl_compatibility`. No autoloads.
+- Scripts have `.gd.uid` sidecars — preserve them.
+- Input actions: `move_left/right/up/down`, `dash` (LMB), `restart` (R).
 
-## Progress — 2026-11-19
+## Progress
 
-Shooting milestone was implemented (historical — superseded by the dash plan; the gun is gone and `projectile.gd` is unreferenced):
+Historical and superseded (see git history and `CURRENT_STATE.md` for detail):
 
-- Mouse aim + hold-to-fire (`fire` = LMB), `Projectile` moved by raycast so it can't tunnel through arena walls; generated shot tone.
-- `Enemy` chaser (5-sided, 3 HP, layer 1) chases the `&"player"` group and deals contact damage.
-- Hit feedback: white flash, generated noise impact, directional knockback; death shard burst via `DeathBurst`.
-- Minimal player health: 3 HP, 0.7 s damage cooldown, red flash, respawn at origin (later replaced in Stage B by 5 HP + `died`/game over, no respawn).
-- `EnemySpawner` in `testing_arena.tscn` spawned 3 enemies at 260–700 px from origin (removed in Stage B).
-- Generated audio moved to `audio/sfx.gd` (`Sfx.make_tone`, `Sfx.make_noise`).
-- Verified with headless Godot 4.7.2: project runs clean, and a smoke harness confirmed projectile damage, enemy death + burst, and player invulnerability. Still run the main scene once to tune feel.
+- **Shooting milestone** — gun, projectiles, chaser enemy, feedback. The gun was removed; `entities/projectile/projectile.gd` is orphaned.
+- **Stage A — dash core** — charge/release dash, pass-through damage, charge preview, generated SFX.
+- **Stage B — wave slice** — 3/5/7 waves, placeholder boss, HUD, game over / victory / `R` restart.
 
-Dash core (Stage A) is implemented:
+The dash combat design was reworked after playtesting: the old charge-up read as laggy. Everything below replaces the old Stage A/F/C/D plan.
 
-- LMB is now `dash`: hold to charge (movement ×0.35, growing preview + outline), release to dash toward the cursor; distance/speed/damage scale with charge, 0.25 s cooldown, i-frames for the dash + 0.05 s.
-- The dash passes through enemies (temporary collision exceptions) and damages each one once per dash via a circle shape query; walls end the dash early.
-- Generated charge tone + release whoosh; tap still gives the minimum dash.
-- Gun code removed from `player.gd`; `projectile.gd` kept on disk unreferenced. `Enemy` now joins `&"enemies"` for the dash collision exceptions.
-- Verified with a headless Godot 4.7.2 smoke harness: damage once per dash, pass-through, wall stop, i-frames, charge slow/preview, no projectiles. Still run the main scene once to tune feel.
+- **Stage 0 — Responsiveness** — ✅ done (headless-verified; camera feel still needs a manual run).
 
-Stage B (wave slice) is implemented:
-- `WaveDirector` (`world/wave_director.gd`) runs waves of 3 / 5 / 7 enemies on a 450–700 px ring around the player (clamped to ±1400, 2 s intermission), then spawns the boss; player death = game over, boss death = victory, and the tree pauses 0.8 s after either end.
-- Placeholder `Boss` (`entities/enemy/boss.gd`) chases → winds up → charges → recovers, telegraphing via outline/scale.
-- Player HP is 5 and now emits `health_changed` / `died` instead of respawning.
-- `Enemy` gained `died`, `health_changed`, `knockback_scale`, `face_target` and the `_get_desired_velocity()` hook.
-- Code-built HUD (`ui/hud.gd`) with HP pips, wave counter, boss bar and win/lose overlay; `R` restarts.
-- Verified with a temporary headless Godot 4.7.2 harness: waves 3/5/7 spawn and advance, boss stats/state machine (windup → 600 px/s charge → recover), victory, game over, pause and `R` restart; the real scene also ran clean headless. Still run the main scene once to tune feel.
+## Locked design — dash combat v5
 
-Next step: Stage C — combo, then Stage D — bullet time, then Stage F — feel pass (core 6). Stage E (rebalance) follows F.
+Goal: instant response, technique-heavy, fast. The dash is the whole game.
 
-## Finalized plan — dash combat (2026-11-19)
+### Dash + wind
 
-Decisions:
+- **Every LMB press dashes immediately.** Nothing is gated behind a charge, and movement is never slowed.
+- Wind is *distance*, not a delay. It builds while LMB is held between dashes and persists, so taps poke and held wind reaches far.
+- Fixed dash duration means distance **is** speed; damage rides on speed.
 
-- Dash is the main attack; the gun is removed for now (`projectile.gd` kept on disk, unreferenced).
-- Holding to charge slows movement to 35%; tap = minimum dash.
-- Bullet time slows the world but not the player.
-- Dash core ships before the wave slice; combo and bullet time come after.
+```
+wind        0 → 1 over 0.9 s (persists between dashes)
+duration    0.1 s fixed
+distance    180 → 420 px
+speed       1800 → 4200 px/s
+normal hit  round(2 + 2·wind)         # 2 .. 4
+execute     normal hit × 3            # 6 .. 12
+cooldown    0.12 s, momentum carried through the landing
+```
 
-### Stage A — dash core — ✅ completed (2026-11-19)
+Note: partial wind only truly matters because the wind rate is slow (0.9 s). A 10 px execute band at the old 0.4 s rate was ~17 ms of hold precision; at 0.9 s it is ~37 ms.
 
-Charge → dash:
+### Execution bands
 
-- [x] Hold LMB (`dash` action) to charge over 1.0 s; release to dash toward the cursor.
-- [x] Distance 150 → 520 px, speed 1200 → 1900 px/s, damage 2 → 3.
-- [x] 0.25 s cooldown after the dash ends; i-frames during the dash + ~0.05 s.
-- [x] Movement at 35% speed while charging; aim stays free.
+`s` = object radius (centre → edge). Ratios are **variables**, not constants, so future difficulty modes can scale them.
 
-Movement and damage:
+Resolve each object **once per dash**, geometrically (no per-frame sampling, no tunneling at 4200 px/s).
 
-- [x] `move_and_slide` at dash velocity; end the dash early on wall contact.
-- [x] Per physics frame, a circle shape query (layer 1, player radius + 4) damages each enemy once per dash via a hit set.
-- [x] Contact damage ignored during i-frames.
+1. **Cross** — the dash segment must pass through the body (perpendicular distance from the object centre to the dash segment ≤ `s`). Otherwise the dash is at best a plain hit.
+2. **End distance** — classify by `d` = distance from the dash endpoint to the object centre.
 
-Readability:
+```
+ENEMY  (s = 20)
+  d ≤ s                 BODY        self-damage (combo shield absorbs first)
+  s < d ≤ 1.5·s         EXECUTE     combo +1
+  d > 1.5·s             normal hit
 
-- [x] Charge preview `Line2D` from the player toward the cursor, length = dash distance.
-- [x] Outline width/colour grows with charge (set `outline.width` / `default_color` directly).
-- [x] SFX (rising `pitch_scale` on a generated tone, noise whoosh on release).
-- [ ] Optional dash trail (`entities/fx/dash_trail.gd` not added).
+BOSS   (s = 48)
+  d ≤ s                 BODY
+  s < d ≤ 1.1·s         PERFECT     big damage, combo KEPT
+  1.1·s < d ≤ 2·s       EXECUTE     big damage, combo RESETS
+  d > 2·s               normal hit
 
-Gun removal:
+PROJECTILE  (s ≈ 8)
+  proximity during the dash within max(2·s, 56)   EXECUTE   combo +1
+  any normal hit                                   destroys it, no combo
+```
 
-- [x] Remove `ProjectileScript`, fire cooldown/muzzle/audio and `_fire()` from `player.gd`.
-- [x] Rename the `fire` input action to `dash` (LMB) in `project.godot`.
+- Any object the dash passes through but does not execute takes a **normal hit** (damage from dash speed).
+- **Self-damage** only when the dash *ends* with the player centre inside the object (`d ≤ s`). Passing through mid-dash is free.
+- Projectiles are handled by proximity (crossing a tiny moving object is unrealistic). They can still be destroyed by normal hits for no combo.
 
-Stage A files: `entities/player/player.gd`, `project.godot`, `audio/sfx.gd` (no dash trail).
+### Combo + bullet time
 
-Acceptance (verified with a temporary headless Godot 4.7.2 harness; game feel still needs a manual run): [x] charge preview grows and movement slows; [x] release dashes; [x] each enemy takes damage once per dash; [x] walls stop the dash; [x] i-frames block contact damage; [x] tap gives a min dash; [x] no projectile spawns; [x] no script errors.
+- **+1 per execute** (enemy, boss perfect, projectile).
+- **Any dash that doesn't execute breaks the combo immediately** (whiff = break).
+- **1 s without an execute** breaks it.
+- **Boss execute resets the combo** unless it is a perfect execute or the boss dies.
+- **Taking a hit clears the combo and deals zero HP damage**; the clear also **destroys projectiles and cancels attacks** (only those).
+- Normal hits never feed the meter.
 
-### Stage B — wave slice — ✅ completed (2026-11-19)
+Bullet time is derived from combo, not triggered:
 
-- [x] 3 / 5 / 7 enemies per wave, spawned at once on a 450–700 px ring around the player, clamped inside the arena (±1400); 2 s intermission.
-- [x] Player HP 5; death = game over; clearing wave 3 spawns the boss; boss death = win.
-- [x] Placeholder boss: radius 48, HP 20, contact damage 2, knockback scale 0.35×.
-- [x] Boss behaviour: `CHASE` (90 px/s) → `WINDUP` (0.45 s) → `CHARGE` (~600 px/s, locked direction, 0.4 s, ends early on wall) → `RECOVER` (0.7 s), every ~2.5 s when within ~500 px. Telegraphed via outline/scale, not `body.color`.
-- [x] `R` restarts (`reload_current_scene()` after setting `paused = false`).
-- [x] HUD: HP pips, `Wave n/3`, boss HP bar, win/lose overlay (`process_mode = ALWAYS`).
-- [x] Enemy additions: `died` + `health_changed` signals, `&"enemies"` group (already present), knockback resistance, `_get_desired_velocity()` hook; `boss.gd extends Enemy` overrides only that hook for behaviour.
-- [x] Wiring via groups (`&"player"`, `&"director"`); HUD last in the scene. `EnemySpawner` removed.
+```
+time_scale = 1 - 0.15 · ln(1 + combo)     # 1 → 0.90, 5 → 0.73, 20 → 0.55
+```
 
-Stage B files: `entities/enemy/enemy.gd`, `entities/enemy/boss.gd`, `entities/player/player.gd`, `world/wave_director.gd`, `ui/hud.gd`, `world/testing_arena.tscn`, `project.godot` (`restart` action).
+Logarithmic, no floor, player unaffected. Losing the combo snaps back to 1.0.
 
-Acceptance (verified with a temporary headless Godot 4.7.2 harness, then removed; game feel still needs a manual run): [x] waves 1–3 spawn 3/5/7 enemies and advance after 2 s; [x] spawns stay on the ring/clamped; [x] boss spawns after wave 3 with the planned stats; [x] boss windup/charge/recover runs and charges at 600 px/s; [x] boss death = victory overlay + pause; [x] player death = game over overlay + pause; [x] `R` reloads the scene at wave 1; [x] no script errors in the main scene.
+### Data-driven
 
-### Stage C — combo
+`Enemy.execute_ratio`, `body_ratio`, `perfect_ratio` (boss only), `Projectile.execute_ratio` / `execute_floor`, plus a future global `execution_scale` multiplier for hard modes. Never hard-code the bands again.
 
-- +1 per enemy hit by a dash (once per enemy per dash).
-- Resets after 2.5 s without a hit or when the player takes damage.
-- Damage multiplier `1 + 0.1 × combo`, capped at 2×.
-- HUD combo counter.
+## Roadmap
 
-### Stage D — bullet time
+### Stage 0 — Responsiveness (done)
 
-- Triggers at combo ≥ 3; lasts 3 s; hits refresh; ending resets the combo so it can't chain forever.
-- `Engine.time_scale = 0.35`; player compensates with `delta / time_scale` for movement, charge and dash timers.
-- Charge rate ×2, damage ×1.5, HUD tint.
-- Reset `time_scale` to 1.0 on death, win and scene reload.
-- Camera smoothing also slows; boost smoothing temporarily if the player outruns the camera.
+Millisecond-level work that is independent of the design above; these all survive later stages.
 
-### Stage F — feel pass (core 6)
+- [x] Input buffer (0.2 s) so presses made during cooldown are never eaten.
+- [x] Momentum carry on dash end instead of a hard stop (no `velocity = ZERO` brake).
+- [x] Camera look-ahead along the movement/dash direction, with speed-boosted smoothing.
+- [x] Physics at 120 Hz (`project.godot`).
+- [x] Shared cached audio streams + per-play pitch variance (no per-spawn WAV generation).
+- [ ] Reticle / OS cursor hiding (deferred to polish if it fights the HUD).
 
-Applies on top of the C/D-tuned core. "Core 6": hit-stop, screen shake, dash ghosts, damage numbers, zoom punch, hurt feedback. Readability extras (endpoint reticle, charge tiers, combo HUD pop, bullet-time tint) and audio layering stay for a later polish pass.
+Acceptance: verified headless — a press during cooldown starts a charge once the cooldown ends, dash end carries 217 px/s of momentum on a tap, and the project runs clean at 120 ticks/s. Camera feel still needs a manual run.
 
-**Time authority (prerequisite, before hit-stop ships):** `Engine.time_scale` is a single global; Stage D (bullet time) and hit-stop must not write it independently or they cancel/lock each other and bullet-time end can resurrect a stale slow-mo. Centralise in `entities/fx/time_control.gd` (`class_name TimeControl`) with separate `bullet_time_factor` and `hitstop_factor`: `Engine.time_scale = bullet_time_factor * hitstop_factor`, per-dash hit-stop budget + "one per physics frame" guard, overlapping freezes extend a real-time deadline, restore timer uses `create_timer(..., ignore_time_scale = true)`. Player compensates for **bullet time only** (`delta / bullet_time_factor`) so hit-stop still freezes the player. `TimeControl.reset()` (`factors = 1, time_scale = 1.0`) on HUD `R` restart *and* director `_begin()` (static state + `time_scale` survive scene reload). Halve/skip hit-stop during bullet time.
+### Stage 1 — Instant dash + wind
 
-**The 6 effects:**
-- Hit-stop: dash hit ~0.035 s, kill ~0.060 s, player hurt ~0.050 s, clamped by per-dash budget.
-- Screen shake (player `Camera2D`): trauma model (`trauma^2`, decay in real time, `offset = Vector2.ZERO` when settled). `look_at` and dash-direction capture must subtract the shake offset (`_aim_point()` helper) so aim/release stay correct — do not rotate the camera. Clamp/skip against arena limits to avoid showing the void.
-- Dash ghosts (`entities/fx/dash_ghost.gd`): plain `Node2D` copies of sides/radius/rotation/color, fade ~0.35→0 over ~0.18 s, emitted by distance travelled (not a `delta` timer) every ~40 px, capped ~8, `z_index = -1`.
-- Damage numbers (`entities/fx/damage_number.gd`): short-lived `Label`, parented to `get_tree().current_scene` (not the enemy — survives `queue_free`), rise/pop/fade.
-- Zoom punch: recompute a single `_zoom_mult` (`camera.zoom = Vector2.ONE * _zoom_mult`), never compound-multiply; kill punch ~1.0 → 0.96 → 1.0.
-- Hurt feedback: use the currently-ignored `from_position` — player knockback away from source, full-screen red flash `ColorRect` on its own `CanvasLayer` (below HUD, `MOUSE_FILTER_IGNORE`), shake + hit-stop.
+- Press-to-dash immediately, wind 0→1 over 0.9 s persisting between dashes, movement never slowed.
+- Fixed 0.1 s duration; distance 180→420; speed-based damage.
+- Replace the charge state machine (`READY` / `CHARGING` / `DASHING`) with a wind value + dash/cooldown states.
+- Path-based resolution: the dash segment is known at launch, so hits resolve geometrically rather than by per-frame circle queries.
+- Dash preview line shows the stored wind distance while held.
 
-**Implementation notes / pitfalls:**
-- Ghost emission and shake decay driven by real time / distance so density and feel stay correct under bullet time and freeze.
-- Do not generate audio per hit; reuse streams and set `pitch_scale`.
-- Boss already animates `body.scale` for telegraphs — colour/outline feedback only.
-- Cache any new visual bases after `super._ready()` in `player.gd` (`outline` exists only then).
-- `WaveDirector` intermission/end `Timer`s are `time_scale`-scaled — decide at implementation whether they should ignore it.
+Acceptance: tap dashes at min distance instantly; holding to full wind dashes 420 px; nothing clamps movement; no tunneling at max speed.
 
-**Stage F files (expected):** `entities/fx/time_control.gd`, `entities/fx/dash_ghost.gd`, `entities/fx/damage_number.gd`, `entities/player/player.gd`, `entities/enemy/enemy.gd`, `ui/hud.gd` (+ small scene/overlay hook as needed), `world/wave_director.gd` (reset/begin guard).
+### Stage 2 — Execute + combo
 
-**Acceptance (manual):** dash into a crowd → freeze/number/ghost/shake read without exceeding the per-dash hit-stop budget; kill → zoom punch returns to exactly 1.0; hurt → knockback away from `from_position` + red flash; aim/dash release stay correct while shaking; die during hit-stop → `R` restarts at normal speed and `Engine.time_scale == 1.0`; damage numbers survive enemy death; ghost density unchanged under bullet time.
+- Ratio bands on `Enemy` (and later `Projectile`), body self-damage at dash end, crossing requirement.
+- Combo meter, whiff break, 1 s expiry, boss perfect band, HUD combo counter.
+- Keep the temporary collision exceptions and i-frames for the dash itself (body damage is a separate check, not a physics hit).
 
-### Stage E — rebalance
+Acceptance: crossing + ending in the band executes; ending outside the band is a normal hit; ending inside costs HP (or combo); the boss perfect band keeps the combo; whiff breaks it.
 
-- Tune enemy/boss HP and timings around dash damage (after Stage F feel); optionally bring the gun back as a secondary/unlock.
+### Stage 3 — Bullet time
 
-### Verification
+- `TimeControl` authority (single writer of `Engine.time_scale`): combo slow + hit-stop factors.
+- Player compensates with `delta / bullet_time_factor` only.
+- Combo shield: a hit clears the combo, deals no damage, destroys projectiles and cancels attacks.
+- Reset to 1.0 on death, win, restart and scene load.
 
-- Manual, in Godot: run the main scene and play the dash + wave slice (3 / 5 / 7 enemies → boss → win/lose). Combo, bullet time and the feel pass are still unbuilt. No CLI tests exist.
+### Stage 4 — Feel-lite (core 6)
+
+Hit-stop (dash hit ~0.035 s, kill ~0.060 s, hurt ~0.050 s), screen shake (trauma model, real-time decay), dash ghosts (every ~40 px, capped, faded), damage numbers (parented to the current scene), zoom punch (single `_zoom_mult`, returns to exactly 1.0), hurt feedback (knockback from `from_position` + red flash + shake).
+
+Requires Stage 3's time authority first.
+
+### Stage 5 — Executables
+
+- Enemy/boss projectiles and boss spawns as combo fuel.
+- Every boss needs one mechanic that spawns executables.
+- Projectile execute range with an absolute floor; normal hits destroy them without combo.
+
+### Stage 6 — Secondary damage
+
+- A second, non-dash damage source (roguelike auto-fire: orbiting fireballs etc.).
+- **Must not feed the combo**, or the meter is free.
+
+### Stage 7 — Pacing + rebalance
+
+- Intermission 2.0 → 0.8 s, spawn ring 450–700 → 300–560, enemy speed 140 → 190.
+- Enemy/boss HP and timings around the new damage numbers.
+
+### Stage 8 — Polish
+
+- Audio layering, reticle, charge tiers, speed lines, combo HUD pop, bullet-time tint.
+- Optional arena template pool.
+
+## Verification
+
+- Manual: run the main scene in Godot and play the dash loop. No CLI tests exist.
+- Headless checks for script errors are acceptable for regressions, but game feel must be played.
 
 ## User's vision
 
-- Fast-paced geometry shooter with nice SFX so it feels entertaining.
-- Souls-like fighting arena: different levels, each with roughly 3 waves then a final boss.
-- Roguelike variant: spawn a few levels from templates.
-- Inherit variant: one player instance always spawned regardless of death, with all upgrades inherited.
-- Later clarification: "inherit" means **upgrades only** persist, not a persistent `Player` node/scene.
+- Fast-paced geometry game with good SFX/FX — *instantly* responsive, not "fast on paper".
+- Souls-like arena: ~3 waves then a boss per level.
+- Roguelike variant: levels from templates; inherit variant: upgrades persist across runs (upgrades only, no persistent player node).
+- Placeholder/generated SFX until art direction exists.
 
 ## Decisions locked in this discussion
 
-- First target: **combat core** (shooting + feedback) before choosing a progression mode.
-- Inheritance semantics: **upgrades/stats only** across deaths or runs; no persistent player node.
-- "Levels" = **a pool of random waves**; enemies and bosses drawn from a random pool. Reuse the existing arena geometry initially; no new map templates needed yet.
-- First playable milestone: **shooting + feedback**.
-- SFX: **placeholder/generated** for now.
-
-## Completed milestone: shooting + feedback (superseded by the dash plan)
-
-Outcome in `world/testing_arena.tscn`:
-
-- Player aims with the mouse (already implemented) and fires fast geometric projectiles.
-- A basic enemy takes damage and dies.
-- Hits produce visible feedback and generated/placeholder sound.
-- No waves, bosses, upgrades, or level pools yet.
-
-Original touch points (implemented):
-
-- `entities/player/player.gd` — add fire input/cooldown; preserve `_ready()` order (`sides`, `radius`, `color` before `super._ready()`).
-- New projectile scene/script under `entities/`; create in Godot if UID-sensitive.
-- New basic enemy scene/script, likely reusing the `Polygon` base for geometry/collision.
-- Hit feedback (flash/particles/shake) plus `AudioStreamPlayer` with generated tones.
-
-## Later phases
-
-1. ✅ Dash core — charge/release dash is the main attack; gun removed for now.
-2. ✅ Wave slice — 3 waves + placeholder boss (chaser + charge) + HUD + game over/restart.
-3. Combo + bullet time (Stage C/D) — combo scaling, then world-slowing bullet time.
-4. Feel pass (Stage F, core 6) — hit-stop with central time authority, shake, dash ghosts, damage numbers, zoom punch, hurt feedback.
-5. Rebalance (Stage E) — tune HP/timings around dash/combo/bullet time + feel.
-6. Enemy/boss pools; upgrade-only inheritance — stats/unlocks persist across runs; no persistent `Player` node.
-7. Polish — readability extras (reticle/charge tiers/combo pop/bullet-time tint), audio layering, optional authored arena-template pool.
-
-## Resolved questions
-
-- Shooting milestone choices (hold-to-fire, one projectile, chaser enemy, flash + knockback + generated tones) are implemented.
-- Remaining design questions are resolved in the finalized dash plan above.
+- **Dash model B**: press = instant dash; holding winds the *next* dash; movement is never slowed.
+- **Fixed 0.1 s dash duration**; wind changes distance, so distance sets speed and damage.
+- **Execution is positional**: cross the object, then end within `ratio × radius`.
+- **Regular enemies are executables**; the boss is a harder, more forgiving band (2·s) with a 1.1·s perfect band that keeps the combo.
+- **Bosses are combo batteries**: their projectiles/spawns are executables; executing the boss body resets the combo.
+- **Combo = execution chain only**; normal hits give damage but no meter.
+- **Combo expiry**: any non-executing dash, 1 s without an execute, or taking a hit (which absorbs the damage instead).
+- **Bullet time is combo-derived**, logarithmic (`1 - 0.15·ln(1+combo)`), player unaffected.
+- **Projectiles**: proximity execute with a floor; normal hits destroy them for no combo.
+- **Everything ratio-based and exported**, ready for future difficulty modes.
+- A second auto-fire damage source is planned, and it must not build combo.
 
 ## Handoff
 
-- [x] Stage A implemented with Godot 4.x GDScript and verified headless; play the main scene once to tune feel.
-- [x] Stage B implemented and verified headless (waves 3/5/7 → boss → win/lose, HUD, R restart). Play it once to tune enemy/boss numbers.
-- Keep `.gd.uid` sidecars; ask the user to make UID-sensitive changes in the editor.
-- Next: Stage C (combo), then Stage D (bullet time), then Stage F (feel pass, core 6), then Stage E (rebalance). See Stage F for the time-authority prerequisite and pitfalls.
+- Design is locked; implementation starts at Stage 0.
+- Keep `.gd.uid` sidecars; ask the user to make UID-sensitive editor changes.
+- After each stage: update `CURRENT_STATE.md`, show the diff, and ask before committing.

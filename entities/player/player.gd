@@ -9,6 +9,17 @@ const SfxScript = preload("res://audio/sfx.gd")
 const HIT_FLASH_TIME: float = 0.12
 const CHARGE_PREVIEW_COLOR: Color = Color(0.55, 1.0, 0.75)
 
+## A press made while dashing / cooling down is remembered this long so the
+## input is never silently dropped.
+const DASH_BUFFER_TIME: float = 0.2
+## The camera leads the player along its movement direction, which is what
+## makes a 1900+ px/s dash read as fast instead of as lag.
+const CAMERA_LOOK_AHEAD: float = 90.0
+const CAMERA_LOOK_AHEAD_PER_SPEED: float = 0.15
+const CAMERA_LOOK_SMOOTHING: float = 10.0
+const CAMERA_BASE_SMOOTHING: float = 10.0
+const CAMERA_DASH_SMOOTHING: float = 55.0
+
 enum DashState {
 	READY,
 	CHARGING,
@@ -31,6 +42,10 @@ enum DashState {
 @export var dash_cooldown: float = 0.25
 @export var dash_charge_move_scale: float = 0.35
 @export var dash_invulnerability_after: float = 0.05
+## Fraction of the dash speed kept when the dash ends, so landing slides
+## instead of hitting an invisible brake.
+@export var dash_momentum_carry: float = 0.18
+@export var momentum_decay: float = 2800.0
 
 const DASH_HIT_RADIUS_BONUS: float = 4.0
 
@@ -54,6 +69,8 @@ var _dash_speed: float = 0.0
 var _dash_damage: int = 1
 var _dash_time_left: float = 0.0
 var _dash_hit_ids: Dictionary = {}
+var _dash_buffer: float = 0.0
+var _momentum: Vector2 = Vector2.ZERO
 var _dash_exceptions: Array[Node] = []
 var _dash_shape: CircleShape2D
 var _dash_query: PhysicsShapeQueryParameters2D
@@ -72,7 +89,7 @@ func _ready() -> void:
 
 	# camera settings
 	camera.position_smoothing_enabled = true
-	camera.position_smoothing_speed = 10.0
+	camera.position_smoothing_speed = CAMERA_BASE_SMOOTHING
 	add_child(camera)
 	camera.make_current()
 	_update_camera_limits()
@@ -98,11 +115,11 @@ func _ready() -> void:
 	_dash_query.collide_with_bodies = true
 
 	charge_audio = AudioStreamPlayer.new()
-	charge_audio.stream = SfxScript.make_tone(220.0, 440.0, 1.5, 7000.0)
+	charge_audio.stream = SfxScript.cached_tone(220.0, 440.0, 1.5, 7000.0)
 	add_child(charge_audio)
 
 	dash_audio = AudioStreamPlayer.new()
-	dash_audio.stream = SfxScript.make_noise(0.15, 14000.0)
+	dash_audio.stream = SfxScript.cached_noise(0.15, 14000.0)
 	add_child(dash_audio)
 
 	health_changed.emit(health, max_health)
@@ -124,6 +141,9 @@ func _physics_process(delta: float) -> void:
 
 	_invulnerability_timer = maxf(_invulnerability_timer - delta, 0.0)
 	_cooldown_timer = maxf(_cooldown_timer - delta, 0.0)
+	_dash_buffer = maxf(_dash_buffer - delta, 0.0)
+	if Input.is_action_just_pressed(&"dash"):
+		_dash_buffer = DASH_BUFFER_TIME
 	if _flash_timer > 0.0:
 		_flash_timer = maxf(_flash_timer - delta, 0.0)
 		if _flash_timer <= 0.0 and body != null:
@@ -134,21 +154,45 @@ func _physics_process(delta: float) -> void:
 
 	if _dash_state == DashState.DASHING:
 		_update_dash(delta)
+		_update_camera(delta)
 		return
 
 	var move_input: Vector2 = Input.get_vector(&"move_left", &"move_right", &"move_up", &"move_down")
 
 	if _dash_state == DashState.CHARGING:
-		velocity = move_input * speed * dash_charge_move_scale
+		velocity = move_input * speed * dash_charge_move_scale + _momentum
 		move_and_slide()
+		_update_momentum(delta)
 		_update_charge(delta)
+		_update_camera(delta)
 		return
 
-	velocity = move_input * speed
+	velocity = move_input * speed + _momentum
 	move_and_slide()
+	_update_momentum(delta)
 
-	if _cooldown_timer <= 0.0 and Input.is_action_just_pressed(&"dash"):
+	if _dash_state == DashState.READY and _cooldown_timer <= 0.0 and _dash_buffer > 0.0:
+		_dash_buffer = 0.0
 		_start_charge()
+
+	_update_camera(delta)
+
+
+func _update_momentum(delta: float) -> void:
+	_momentum = _momentum.move_toward(Vector2.ZERO, momentum_decay * delta)
+
+
+func _update_camera(delta: float) -> void:
+	var look_ahead: Vector2 = velocity * CAMERA_LOOK_AHEAD_PER_SPEED
+	if look_ahead.length_squared() > CAMERA_LOOK_AHEAD * CAMERA_LOOK_AHEAD:
+		look_ahead = look_ahead.normalized() * CAMERA_LOOK_AHEAD
+
+	# Frame-rate independent smoothing toward the lead position.
+	camera.position = camera.position.lerp(look_ahead, 1.0 - exp(-CAMERA_LOOK_SMOOTHING * delta))
+
+	# Glue the camera to the player during a dash so it cannot fall behind.
+	var dash_ratio: float = clampf(velocity.length() / maxf(dash_min_speed, 1.0), 0.0, 1.0)
+	camera.position_smoothing_speed = lerpf(CAMERA_BASE_SMOOTHING, CAMERA_DASH_SMOOTHING, dash_ratio)
 
 
 func _charge_ratio() -> float:
@@ -233,6 +277,7 @@ func _start_dash() -> void:
 		charge_audio.stop()
 	if dash_audio != null:
 		dash_audio.stop()
+		dash_audio.pitch_scale = SfxScript.varied_pitch()
 		dash_audio.play()
 
 
@@ -276,7 +321,9 @@ func _end_dash() -> void:
 	_release_dash_exceptions()
 	_dash_state = DashState.READY
 	_cooldown_timer = dash_cooldown
-	velocity = Vector2.ZERO
+	# Keep part of the dash speed instead of stopping dead.
+	_momentum = _dash_direction * _dash_speed * dash_momentum_carry
+	velocity = _momentum
 
 
 func _cancel_dash() -> void:
@@ -284,6 +331,7 @@ func _cancel_dash() -> void:
 	_dash_state = DashState.READY
 	_charge_timer = 0.0
 	_cooldown_timer = 0.0
+	_momentum = Vector2.ZERO
 	velocity = Vector2.ZERO
 	_reset_charge_visuals()
 	if charge_audio != null:
